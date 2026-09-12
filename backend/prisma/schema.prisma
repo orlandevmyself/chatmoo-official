@@ -1,0 +1,75 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  name      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  sessions  Session[]
+}
+
+model Session {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  username  String
+  university String?
+  genderFilter String? // 'male', 'female', 'all'
+  gender    String? // 'male', 'female', 'other'
+  avatar    String   @default("adventurer") // DiceBear avatar style
+  avatarSeed String? // Seed for avatar generation
+  status    String   @default("active") // 'active', 'matched', 'ended', 'inactive'
+  chatroomId String? // Track current chatroom for session
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  chatrooms ChatroomMember[]
+
+  @@index([status])
+  @@index([genderFilter])
+  @@index([chatroomId])
+}
+
+model Chatroom {
+  id        String   @id @default(uuid())
+  status    String   @default("active") // 'active', 'ended'
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  members   ChatroomMember[]
+  messages  Message[]
+}
+
+model ChatroomMember {
+  id        String   @id @default(uuid())
+  chatroomId String
+  chatroom  Chatroom  @relation(fields: [chatroomId], references: [id], onDelete: Cascade)
+  sessionId String
+  session   Session   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  joinedAt  DateTime @default(now())
+  leftAt    DateTime?
+  
+  @@unique([chatroomId, sessionId])
+  @@index([chatroomId])
+  @@index([sessionId])
+}
+
+model Message {
+  id        String   @id @default(uuid())
+  chatroomId String
+  chatroom  Chatroom  @relation(fields: [chatroomId], references: [id], onDelete: Cascade)
+  senderId  String
+  content   String
+  imageUrl  String?  // For image messages
+  type      String   @default("text") // 'text', 'image', 'system'
+  createdAt DateTime @default(now())
+
+  @@index([chatroomId])
+  @@index([createdAt])
+}
