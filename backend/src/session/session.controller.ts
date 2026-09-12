@@ -9,6 +9,8 @@ export class SessionController {
   async create(@Body() body: {
     userId: string;
     username: string;
+    country?: string;
+    countryCode?: string;
     university?: string;
     genderFilter?: string;
     gender?: string;

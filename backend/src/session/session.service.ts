@@ -12,6 +12,8 @@ export class SessionService {
   async createSession(data: {
     userId: string;
     username: string;
+    country?: string;
+    countryCode?: string;
     university?: string;
     genderFilter?: string;
     gender?: string;
@@ -22,6 +24,8 @@ export class SessionService {
       data: {
         userId: data.userId,
         username: data.username,
+        country: data.country,
+        countryCode: data.countryCode,
         university: data.university,
         genderFilter: data.genderFilter || 'all',
         gender: data.gender,
@@ -39,6 +43,8 @@ export class SessionService {
       JSON.stringify({
         sessionId: session.id,
         username: session.username,
+        country: session.country,
+        countryCode: data.countryCode,
         university: session.university,
         genderFilter: session.genderFilter,
         gender: session.gender,

@@ -21,6 +21,8 @@ model Session {
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   username  String
+  country   String?  // Country name
+  countryCode String? // Country code (alpha-2)
   university String?
   genderFilter String? // 'male', 'female', 'all'
   gender    String? // 'male', 'female', 'other'
@@ -68,8 +70,12 @@ model Message {
   content   String
   imageUrl  String?  // For image messages
   type      String   @default("text") // 'text', 'image', 'system'
+  replyToId String?  // ID of the message being replied to
+  replyTo   Message? @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies   Message[] @relation("MessageReplies")
   createdAt DateTime @default(now())
 
   @@index([chatroomId])
   @@index([createdAt])
+  @@index([replyToId])
 }

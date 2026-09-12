@@ -25,9 +25,14 @@ export class MatchService {
       return { matched: false, message: 'Session already matched or ended' };
     }
 
-    // Ensure session is active and searching
+    // Ensure session is active and searching (reactivate if inactive)
     if (session.status !== 'active') {
       await this.sessionService.updateSessionStatus(sessionId, 'active');
+      // Clear chatroomId if session was inactive
+      await this.prisma.session.update({
+        where: { id: sessionId },
+        data: { chatroomId: null },
+      });
     }
     await this.sessionService.setSearching(sessionId, true);
 
@@ -84,6 +89,8 @@ export class MatchService {
       matchedSession: {
         id: matchedSession.id,
         username: matchedSession.username,
+        country: (matchedSession as any).country,
+        countryCode: (matchedSession as any).countryCode,
         university: matchedSession.university,
         gender: matchedSession.gender,
         avatar: (matchedSession as any).avatar || 'adventurer',
@@ -96,6 +103,8 @@ export class MatchService {
       matchedSession: {
         id: currentSessionDetails.id,
         username: currentSessionDetails.username,
+        country: (currentSessionDetails as any).country,
+        countryCode: (currentSessionDetails as any).countryCode,
         university: currentSessionDetails.university,
         gender: currentSessionDetails.gender,
         avatar: (currentSessionDetails as any).avatar || 'adventurer',
@@ -109,6 +118,8 @@ export class MatchService {
       matchedSession: {
         id: matchedSession.id,
         username: matchedSession.username,
+        country: (matchedSession as any).country,
+        countryCode: (matchedSession as any).countryCode,
         university: matchedSession.university,
         gender: matchedSession.gender,
         avatar: (matchedSession as any).avatar || 'adventurer',
@@ -157,7 +168,7 @@ export class MatchService {
       // Don't update their session status or chatroomId
     }
 
-    // Set this user's session to inactive
+    // Set this user's session to inactive and clear chatroomId
     await this.prisma.session.update({
       where: { id: sessionId },
       data: { status: 'inactive', chatroomId: null },
@@ -207,7 +218,7 @@ export class MatchService {
       // Don't update their session status or chatroomId
     }
 
-    // Set this user's session to inactive
+    // Set this user's session to inactive and clear chatroomId
     await this.prisma.session.update({
       where: { id: sessionId },
       data: { status: 'inactive', chatroomId: null },

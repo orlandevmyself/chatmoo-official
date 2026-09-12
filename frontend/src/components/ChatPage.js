@@ -5,7 +5,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Card, CardContent } from './ui/card';
 import { Badge } from './ui/badge';
-import { ArrowLeft, Send, X, User, GraduationCap, Venus, Mars, Transgender, MoreVertical, Forward, Image as ImageIcon } from 'lucide-react';
+import { ArrowLeft, Send, X, User, GraduationCap, Venus, Mars, Transgender, MoreVertical, Forward, Image as ImageIcon, Globe, Heart, MessageCircle } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3000';
@@ -21,6 +21,9 @@ function ChatPage({ session, onBackToLanding }) {
   const [isTyping, setIsTyping] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [partnerLeft, setPartnerLeft] = useState(false);
+  const [replyingTo, setReplyingTo] = useState(null);
+  const [messageReactions, setMessageReactions] = useState({}); // messageId -> array of sessionIds
+  const [showMessageActions, setShowMessageActions] = useState(null);
   const messagesEndRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const socketRef = useRef(null);
@@ -28,6 +31,7 @@ function ChatPage({ session, onBackToLanding }) {
   const matchingTimeoutRef = useRef(null);
   const isProcessingMatchRef = useRef(false);
   const fileInputRef = useRef(null);
+  const inputRef = useRef(null);
 
   useEffect(() => {
     const newSocket = io(SOCKET_URL, {
@@ -118,6 +122,31 @@ function ChatPage({ session, onBackToLanding }) {
       console.log('[Frontend] Partner reconnected:', data);
       // Partner came back
       setPartnerLeft(false);
+    });
+
+    newSocket.on('messageReaction', (data) => {
+      console.log('[Frontend] Message reaction received:', data);
+      setMessageReactions(prev => {
+        const currentReactions = prev[data.messageId] || [];
+        const hasReacted = currentReactions.includes(data.sessionId);
+
+        if (data.reacted) {
+          // Add reaction if not already present
+          if (!hasReacted) {
+            return {
+              ...prev,
+              [data.messageId]: [...currentReactions, data.sessionId],
+            };
+          }
+        } else {
+          // Remove reaction
+          return {
+            ...prev,
+            [data.messageId]: currentReactions.filter(id => id !== data.sessionId),
+          };
+        }
+        return prev;
+      });
     });
 
     newSocket.on('joinChatroom', (response) => {
@@ -293,6 +322,11 @@ function ChatPage({ session, onBackToLanding }) {
         chatroomId,
         content: newMessage,
         type: 'text',
+        replyTo: replyingTo ? {
+          id: replyingTo.id,
+          content: replyingTo.content,
+          senderId: replyingTo.senderId,
+        } : null,
       };
 
       console.log('[Frontend] Sending message:', messageData);
@@ -303,6 +337,7 @@ function ChatPage({ session, onBackToLanding }) {
       }
 
       setNewMessage('');
+      setReplyingTo(null);
       setIsTyping(false);
 
       if (typingTimeoutRef.current) {
@@ -352,8 +387,15 @@ function ChatPage({ session, onBackToLanding }) {
           content: '',
           imageUrl,
           type: 'image',
+          replyTo: replyingTo ? {
+            id: replyingTo.id,
+            content: replyingTo.content,
+            senderId: replyingTo.senderId,
+          } : null,
         });
       }
+
+      setReplyingTo(null);
     } catch (error) {
       console.error('[Frontend] Error uploading image:', error);
       alert('Failed to upload image. Please try again.');
@@ -393,6 +435,57 @@ function ChatPage({ session, onBackToLanding }) {
     }
   };
 
+  const handleReply = (message) => {
+    setReplyingTo(message);
+    setShowMessageActions(null);
+    if (inputRef?.current) {
+      inputRef.current.focus();
+    }
+  };
+
+  const handleCancelReply = () => {
+    setReplyingTo(null);
+  };
+
+  const handleHeartReaction = (messageId) => {
+    const currentReactions = messageReactions[messageId] || [];
+    const hasReacted = currentReactions.includes(session.id);
+    const newReactions = hasReacted
+      ? currentReactions.filter(id => id !== session.id)
+      : [...currentReactions, session.id];
+
+    setMessageReactions(prev => ({
+      ...prev,
+      [messageId]: newReactions,
+    }));
+    setShowMessageActions(null);
+
+    // Emit reaction to server
+    if (socketRef.current && chatroomId) {
+      socketRef.current.emit('messageReaction', {
+        chatroomId,
+        messageId,
+        reacted: !hasReacted,
+      });
+    }
+  };
+
+  const getMessageGrouping = (messages, index) => {
+    const currentMessage = messages[index];
+    const prevMessage = messages[index - 1];
+    const nextMessage = messages[index + 1];
+
+    const isGroupedWithPrev = prevMessage && prevMessage.senderId === currentMessage.senderId;
+    const isGroupedWithNext = nextMessage && nextMessage.senderId === currentMessage.senderId;
+
+    return {
+      isFirst: !isGroupedWithPrev,
+      isLast: !isGroupedWithNext,
+      isMiddle: isGroupedWithPrev && isGroupedWithNext,
+      showAvatar: !isGroupedWithPrev,
+    };
+  };
+
   const handleSkip = async () => {
     try {
       if (matchingTimeoutRef.current) {
@@ -408,6 +501,8 @@ function ChatPage({ session, onBackToLanding }) {
         setMatchedUser(null);
         setMessages([]);
         setPartnerLeft(false);
+        setReplyingTo(null);
+        setMessageReactions({});
         setTimeout(startMatching, 1000);
         return;
       }
@@ -418,6 +513,8 @@ function ChatPage({ session, onBackToLanding }) {
       setChatroomId(null);
       setMatchedUser(null);
       setMessages([]);
+      setReplyingTo(null);
+      setMessageReactions({});
 
       if (socketRef.current) {
         socketRef.current.emit('skipMatch');
@@ -490,6 +587,11 @@ function ChatPage({ session, onBackToLanding }) {
     return `https://api.dicebear.com/7.x/${style}/svg?seed=${seed}`;
   };
 
+  const getFlagUrl = (countryCode) => {
+    if (!countryCode) return null;
+    return `https://flagcdn.com/w80/${countryCode.toLowerCase()}.png`;
+  };
+
   if (status === 'searching') {
     return (
       <div className="min-h-screen bg-gradient-to-br from-navy via-softPurple to-coral flex items-center justify-center p-4 relative overflow-hidden">
@@ -510,7 +612,22 @@ function ChatPage({ session, onBackToLanding }) {
             </div>
           </div>
           <h2 className="text-2xl font-bold mb-2 text-navy">Searching for a match...</h2>
-          <p className="text-navy/70 mb-6">Looking for someone to chat with</p>
+          <p className="text-navy/70 mb-2">Looking for someone to chat with</p>
+          {session.country && (
+            <p className="text-navy/50 text-sm flex items-center justify-center gap-2">
+              <Globe className="w-4 h-4" />
+              {session.countryCode ? (
+                <img
+                  src={getFlagUrl(session.countryCode)}
+                  alt={session.country}
+                  className="w-6 h-4 object-cover rounded"
+                />
+              ) : (
+                <span className="text-2xl">🌍</span>
+              )}
+              {session.country}
+            </p>
+          )}
           <Button
             variant="outline"
             onClick={handleBackToLanding}
@@ -539,7 +656,22 @@ function ChatPage({ session, onBackToLanding }) {
             />
           </div>
           <h2 className="text-2xl font-bold mb-2 text-navy">Chat Ended</h2>
-          <p className="text-navy/70 mb-6">Thanks for using ChatMoo!</p>
+          <p className="text-navy/70 mb-2">Thanks for using ChatMoo!</p>
+          {session.country && (
+            <p className="text-navy/50 text-sm flex items-center justify-center gap-2 mb-6">
+              <Globe className="w-4 h-4" />
+              {session.countryCode ? (
+                <img
+                  src={getFlagUrl(session.countryCode)}
+                  alt={session.country}
+                  className="w-6 h-4 object-cover rounded"
+                />
+              ) : (
+                <span className="text-2xl">🌍</span>
+              )}
+              {session.country}
+            </p>
+          )}
           <Button
             variant="outline"
             onClick={handleBackToLanding}
@@ -568,6 +700,20 @@ function ChatPage({ session, onBackToLanding }) {
           <div className="flex-1">
             <h2 className="text-white font-bold text-lg">{matchedUser?.username}</h2>
             <div className="flex items-center gap-2 flex-wrap">
+              {matchedUser?.country && (
+                <Badge variant="outline" className="bg-white/20 text-white border-white/30">
+                  {matchedUser.countryCode ? (
+                    <img
+                      src={getFlagUrl(matchedUser.countryCode)}
+                      alt={matchedUser.country}
+                      className="w-6 h-4 object-cover rounded mr-1"
+                    />
+                  ) : (
+                    <span className="mr-1">🌍</span>
+                  )}
+                  {matchedUser.country}
+                </Badge>
+              )}
               {matchedUser?.gender && (
                 <Badge variant="secondary" className={cn(getGenderColor(matchedUser.gender), "text-white")}>
                   {getGenderIcon(matchedUser.gender)}
@@ -618,68 +764,154 @@ function ChatPage({ session, onBackToLanding }) {
             </div>
           ) : (
             <div className="space-y-4">
-              {partnerLeft && (
-                <div className="bg-navy/10 border border-navy/20 rounded-lg p-4 text-center">
-                  <p className="text-navy font-medium">Your partner has left the chat</p>
-                  <p className="text-navy/70 text-sm mt-1">Click Skip to find a new match</p>
-                </div>
-              )}
-              {messages.map((message) => (
-                <div
-                  key={message.id}
-                  className={cn(
-                    "flex gap-3 animate-fade-in",
-                    message.senderId === session.id ? "justify-end" : "justify-start"
-                  )}
-                >
-                  <div className={cn(
-                    "w-10 h-10 rounded-full overflow-hidden shadow-md",
-                    message.senderId === session.id ? "border-2 border-coral" : "border-2 border-softPurple"
-                  )}>
-                    <img
-                      src={message.senderId === session.id
-                        ? getAvatarUrl(session.username, session.avatar, session.avatarSeed)
-                        : getAvatarUrl(matchedUser?.username, matchedUser?.avatar, matchedUser?.avatarSeed)
-                      }
-                      alt={message.senderId === session.id ? session.username : matchedUser?.username}
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
-                  <Card className={cn(
-                    "max-w-[75%] shadow-md",
-                    message.senderId === session.id ? "bg-coral text-white" : "bg-white"
-                  )}>
-                    <CardContent className="p-3">
-                      {message.type === 'image' && message.imageUrl ? (
+              {messages.map((message, index) => {
+                const grouping = getMessageGrouping(messages, index);
+                const isOwnMessage = message.senderId === session.id;
+                const hasReacted = messageReactions[message.id]?.includes(session.id);
+                const reactionCount = messageReactions[message.id]?.length || 0;
+
+                return (
+                  <div
+                    key={message.id}
+                    className={cn(
+                      "flex gap-3 animate-fade-in",
+                      isOwnMessage ? "justify-end" : "justify-start"
+                    )}
+                  >
+                    {!isOwnMessage && grouping.showAvatar && (
+                      <div className="w-10 h-10 rounded-full overflow-hidden shadow-md border-2 border-softPurple flex-shrink-0">
                         <img
-                          src={message.imageUrl}
-                          alt="Shared image"
-                          className="max-w-full rounded-lg mb-2"
+                          src={getAvatarUrl(matchedUser?.username, matchedUser?.avatar, matchedUser?.avatarSeed)}
+                          alt={matchedUser?.username}
+                          className="w-full h-full object-cover"
                         />
-                      ) : (
-                        <p className="font-medium">{message.content}</p>
-                      )}
-                      <p className={cn(
-                        "text-xs mt-1 opacity-80",
-                        message.senderId === session.id ? "text-white/80" : "text-navy/50"
+                      </div>
+                    )}
+                    {!isOwnMessage && !grouping.showAvatar && (
+                      <div className="w-10 flex-shrink-0" />
+                    )}
+                    <div className="max-w-[75%]">
+                      <Card className={cn(
+                        "shadow-md relative group",
+                        isOwnMessage ? "bg-coral text-white" : "bg-white",
+                        grouping.isFirst && "rounded-t-2xl",
+                        grouping.isLast && "rounded-b-2xl",
+                        grouping.isMiddle && "rounded-none",
+                        grouping.isFirst && grouping.isLast && "rounded-2xl"
                       )}>
-                        {new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </p>
-                    </CardContent>
-                  </Card>
-                </div>
-              ))}
+                        <CardContent className="p-3">
+                          {message.replyTo && (
+                            <div className={cn(
+                              "text-xs mb-2 p-2 rounded-lg opacity-80",
+                              isOwnMessage ? "bg-white/20" : "bg-navy/10"
+                            )}>
+                              <div className="flex items-center gap-1 mb-1">
+                                <MessageCircle className="w-3 h-3" />
+                                <span className="font-medium">
+                                  {message.replyTo.senderId === session.id ? 'You' : matchedUser?.username}
+                                </span>
+                              </div>
+                              <p className="truncate">{message.replyTo.content}</p>
+                            </div>
+                          )}
+                          {message.type === 'image' && message.imageUrl ? (
+                            <img
+                              src={message.imageUrl}
+                              alt="Shared image"
+                              className="max-w-full rounded-lg mb-2"
+                            />
+                          ) : (
+                            <p className="font-medium">{message.content}</p>
+                          )}
+                          <div className="flex items-center justify-between mt-1">
+                            <p className={cn(
+                              "text-xs opacity-80",
+                              isOwnMessage ? "text-white/80" : "text-navy/50"
+                            )}>
+                              {new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </p>
+                            {messageReactions[message.id] && messageReactions[message.id].length > 0 && (
+                              <div className="flex items-center gap-1 ml-2">
+                                <Heart className={cn(
+                                  "w-4 h-4",
+                                  isOwnMessage ? "fill-white text-white" : "fill-red-500 text-red-500"
+                                )} />
+                                <span className={cn(
+                                  "text-xs font-medium",
+                                  isOwnMessage ? "text-white" : "text-red-500"
+                                )}>
+                                  {messageReactions[message.id].length}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        </CardContent>
+                        <button
+                          onClick={() => setShowMessageActions(showMessageActions === message.id ? null : message.id)}
+                          className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-black/10 rounded"
+                        >
+                          <MoreVertical className="w-4 h-4" />
+                        </button>
+                      </Card>
+                      {showMessageActions === message.id && (
+                        <div className={cn(
+                          "flex gap-2 mt-1",
+                          isOwnMessage ? "justify-end" : "justify-start"
+                        )}>
+                          <button
+                            onClick={() => handleReply(message)}
+                            className="px-3 py-1 bg-white border border-navy/20 rounded-lg text-sm hover:bg-navy/5 transition-all"
+                          >
+                            <MessageCircle className="w-4 h-4 inline mr-1" />
+                            Reply
+                          </button>
+                          <button
+                            onClick={() => handleHeartReaction(message.id)}
+                            className={cn(
+                              "px-3 py-1 border rounded-lg text-sm transition-all",
+                              hasReacted
+                                ? "bg-red-500 text-white border-red-500"
+                                : "bg-white border-navy/20 hover:bg-navy/5"
+                            )}
+                          >
+                            <Heart className={cn(
+                              "w-4 h-4 inline mr-1",
+                              hasReacted ? "fill-white text-white" : "text-navy"
+                            )} />
+                            {hasReacted ? 'Liked' : 'Like'}
+                            {reactionCount > 0 && (
+                              <span className="ml-1 text-xs">({reactionCount})</span>
+                            )}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                    {isOwnMessage && grouping.showAvatar && (
+                      <div className="w-10 h-10 rounded-full overflow-hidden shadow-md border-2 border-coral flex-shrink-0">
+                        <img
+                          src={getAvatarUrl(session.username, session.avatar, session.avatarSeed)}
+                          alt={session.username}
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                    )}
+                    {isOwnMessage && !grouping.showAvatar && (
+                      <div className="w-10 flex-shrink-0" />
+                    )}
+                  </div>
+                );
+              })}
               
               {typingUsers.length > 0 && (
                 <div className="flex gap-3 justify-start animate-slide-up">
-                  <div className="w-10 h-10 rounded-full overflow-hidden shadow-md border-2 border-softPurple">
+                  <div className="w-10 h-10 rounded-full overflow-hidden shadow-md border-2 border-softPurple flex-shrink-0">
                     <img
                       src={getAvatarUrl(matchedUser?.username, matchedUser?.avatar, matchedUser?.avatarSeed)}
                       alt={matchedUser?.username}
                       className="w-full h-full object-cover"
                     />
                   </div>
-                  <Card className="bg-navy/10 shadow-md">
+                  <Card className="bg-navy/10 shadow-md rounded-2xl rounded-tl-sm">
                     <CardContent className="p-3">
                       <p className="text-sm text-navy/70 font-medium">
                         {matchedUser?.username} is typing...
@@ -698,6 +930,31 @@ function ChatPage({ session, onBackToLanding }) {
       {/* Input */}
       <div className="bg-white border-t border-navy/10 shadow-lg p-4">
         <div className="max-w-4xl mx-auto">
+          {partnerLeft && (
+            <div className="bg-navy/10 border border-navy/20 rounded-lg p-3 mb-3 text-center">
+              <p className="text-navy font-medium text-sm">Your partner has left the chat</p>
+              <p className="text-navy/70 text-xs mt-1">Click Skip to find a new match</p>
+            </div>
+          )}
+          {replyingTo && (
+            <div className="bg-navy/10 rounded-lg p-3 mb-3 flex items-center justify-between">
+              <div className="flex items-center gap-2 flex-1">
+                <MessageCircle className="w-4 h-4 text-navy/50" />
+                <div className="flex-1">
+                  <p className="text-xs text-navy/70 font-medium">
+                    Replying to {replyingTo.senderId === session.id ? 'yourself' : matchedUser?.username}
+                  </p>
+                  <p className="text-sm text-navy truncate">{replyingTo.content}</p>
+                </div>
+              </div>
+              <button
+                onClick={handleCancelReply}
+                className="p-1 hover:bg-navy/20 rounded transition-colors"
+              >
+                <X className="w-4 h-4 text-navy/50" />
+              </button>
+            </div>
+          )}
           <form onSubmit={handleSendMessage} className="flex gap-3">
             <input
               type="file"
@@ -716,6 +973,7 @@ function ChatPage({ session, onBackToLanding }) {
               <ImageIcon className="w-5 h-5" />
             </Button>
             <Input
+              ref={inputRef}
               value={newMessage}
               onChange={handleInputChange}
               placeholder={partnerLeft ? "Partner has left - click Skip to find a new match" : "Type a message..."}

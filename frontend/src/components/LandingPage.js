@@ -1,17 +1,45 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from './ui/dialog';
-import { User, GraduationCap, Venus, Mars, Transgender, Lock, Crown, Sparkles, X, Check, XCircle, CreditCard, Wallet, Landmark, RefreshCw } from 'lucide-react';
+import { User, GraduationCap, Venus, Mars, Transgender, Lock, Crown, Sparkles, X, Check, XCircle, CreditCard, Wallet, Landmark, RefreshCw, ChevronDown, Search } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3000';
+const UNIVERSITIES_API = 'http://universities.hipolabs.com/search';
+
+const COUNTRIES = [
+  { name: 'Philippines', code: 'PH' },
+  { name: 'United States', code: 'US' },
+  { name: 'United Kingdom', code: 'GB' },
+  { name: 'Canada', code: 'CA' },
+  { name: 'Australia', code: 'AU' },
+  { name: 'Japan', code: 'JP' },
+  { name: 'South Korea', code: 'KR' },
+  { name: 'Singapore', code: 'SG' },
+  { name: 'India', code: 'IN' },
+  { name: 'Germany', code: 'DE' },
+  { name: 'France', code: 'FR' },
+  { name: 'Spain', code: 'ES' },
+  { name: 'Italy', code: 'IT' },
+  { name: 'Brazil', code: 'BR' },
+  { name: 'Mexico', code: 'MX' },
+  { name: 'Netherlands', code: 'NL' },
+  { name: 'Sweden', code: 'SE' },
+  { name: 'Norway', code: 'NO' },
+  { name: 'Denmark', code: 'DK' },
+  { name: 'Finland', code: 'FI' },
+  { name: 'Switzerland', code: 'CH' },
+  { name: 'Other', code: 'OTHER' },
+];
 
 function LandingPage({ onStartChat }) {
   const [formData, setFormData] = useState({
     username: '',
+    country: 'Philippines',
+    countryCode: 'PH',
     university: '',
     gender: '',
     genderFilter: 'all',
@@ -20,6 +48,51 @@ function LandingPage({ onStartChat }) {
   });
   const [selectedAvatarStyle, setSelectedAvatarStyle] = useState('adventurer');
   const [avatarSeed, setAvatarSeed] = useState('');
+  const [universities, setUniversities] = useState([]);
+  const [loadingUniversities, setLoadingUniversities] = useState(false);
+  const [showCountryDropdown, setShowCountryDropdown] = useState(false);
+  const [countrySearchQuery, setCountrySearchQuery] = useState('');
+  const [universitySearchQuery, setUniversitySearchQuery] = useState('');
+  const [showUniversityDropdown, setShowUniversityDropdown] = useState(false);
+  const [isOtherCountry, setIsOtherCountry] = useState(false);
+  const [isOtherUniversity, setIsOtherUniversity] = useState(false);
+
+  // Fetch universities when country changes
+  useEffect(() => {
+    const fetchUniversities = async () => {
+      if (!formData.country) return;
+
+      setLoadingUniversities(true);
+      try {
+        const response = await axios.get(`${UNIVERSITIES_API}?country=${formData.country}`);
+        setUniversities(response.data || []);
+      } catch (error) {
+        console.error('Error fetching universities:', error);
+        setUniversities([]);
+      } finally {
+        setLoadingUniversities(false);
+      }
+    };
+
+    fetchUniversities();
+  }, [formData.country]);
+
+  // Close dropdowns when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (!event.target.closest('.country-dropdown') && !event.target.closest('.country-button')) {
+        setShowCountryDropdown(false);
+        setCountrySearchQuery('');
+      }
+      if (!event.target.closest('.university-dropdown') && !event.target.closest('.university-input')) {
+        setShowUniversityDropdown(false);
+        setUniversitySearchQuery('');
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [showPremiumModal, setShowPremiumModal] = useState(false);
@@ -29,6 +102,54 @@ function LandingPage({ onStartChat }) {
       ...formData,
       [e.target.name]: e.target.value,
     });
+  };
+
+  const handleCountrySelect = (country) => {
+    if (country.code === 'OTHER') {
+      setIsOtherCountry(true);
+      setFormData({
+        ...formData,
+        country: '',
+        countryCode: '',
+        university: '', // Reset university when country changes
+      });
+    } else {
+      setIsOtherCountry(false);
+      setFormData({
+        ...formData,
+        country: country.name,
+        countryCode: country.code,
+        university: '', // Reset university when country changes
+      });
+    }
+    setShowCountryDropdown(false);
+    setCountrySearchQuery('');
+  };
+
+  const filteredCountries = COUNTRIES.filter(country =>
+    country.name.toLowerCase().includes(countrySearchQuery.toLowerCase())
+  );
+
+  const filteredUniversities = universities.filter(uni =>
+    uni.name.toLowerCase().includes(universitySearchQuery.toLowerCase())
+  );
+
+  const handleUniversitySelect = (universityName) => {
+    if (universityName === 'Other') {
+      setIsOtherUniversity(true);
+      setFormData({
+        ...formData,
+        university: '',
+      });
+    } else {
+      setIsOtherUniversity(false);
+      setFormData({
+        ...formData,
+        university: universityName,
+      });
+    }
+    setShowUniversityDropdown(false);
+    setUniversitySearchQuery('');
   };
 
   const handleAvatarStyleChange = (style) => {
@@ -51,6 +172,10 @@ function LandingPage({ onStartChat }) {
   const getAvatarUrl = (style, seed) => {
     const finalSeed = seed || formData.username || 'default';
     return `https://api.dicebear.com/7.x/${style}/svg?seed=${finalSeed}`;
+  };
+
+  const getFlagUrl = (countryCode) => {
+    return `https://flagcdn.com/w80/${countryCode.toLowerCase()}.png`;
   };
 
   const handleGenderSelect = (gender) => {
@@ -88,6 +213,8 @@ function LandingPage({ onStartChat }) {
       const sessionResponse = await axios.post(`${API_URL}/sessions`, {
         userId,
         username: formData.username,
+        country: formData.country,
+        countryCode: formData.countryCode,
         university: formData.university,
         gender: formData.gender,
         genderFilter: formData.genderFilter,
@@ -101,6 +228,8 @@ function LandingPage({ onStartChat }) {
         ...formData,
         avatar: formData.avatar,
         avatarSeed: avatarSeed || formData.username,
+        country: formData.country,
+        countryCode: formData.countryCode,
       };
 
       onStartChat(sessionData);
@@ -259,17 +388,186 @@ function LandingPage({ onStartChat }) {
               </div>
 
               <div className="space-y-2">
+                <label className="text-sm font-medium text-navy">Country</label>
+                {isOtherCountry ? (
+                  <div className="flex gap-2">
+                    <Input
+                      name="country"
+                      value={formData.country}
+                      onChange={handleChange}
+                      placeholder="Enter your country"
+                      className="rounded-xl flex-1"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsOtherCountry(false);
+                        setShowCountryDropdown(true);
+                      }}
+                      className="px-3 py-2 rounded-xl border-2 border-navy/20 bg-white hover:border-coral/50 transition-all text-navy"
+                    >
+                      <ChevronDown className="w-4 h-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="relative country-dropdown">
+                    <button
+                      type="button"
+                      onClick={() => setShowCountryDropdown(!showCountryDropdown)}
+                      className="country-button w-full flex items-center justify-between p-3 rounded-xl border-2 border-navy/20 bg-white hover:border-coral/50 transition-all"
+                    >
+                      <span className="flex items-center gap-2">
+                        <img
+                          src={getFlagUrl(formData.countryCode)}
+                          alt={formData.country}
+                          className="w-6 h-4 object-cover rounded"
+                        />
+                        <span className="text-navy">{formData.country}</span>
+                      </span>
+                      <ChevronDown className="w-4 h-4 text-navy" />
+                    </button>
+                    {showCountryDropdown && (
+                      <div className="absolute z-50 w-full mt-2 bg-white border-2 border-navy/20 rounded-xl shadow-lg max-h-80 overflow-hidden">
+                        <div className="p-3 border-b border-navy/10">
+                          <div className="relative">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-navy/50" />
+                            <input
+                              type="text"
+                              placeholder="Search countries..."
+                              value={countrySearchQuery}
+                              onChange={(e) => setCountrySearchQuery(e.target.value)}
+                              className="w-full pl-9 pr-3 py-2 rounded-lg border border-navy/20 text-sm focus:outline-none focus:border-coral text-navy"
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                          </div>
+                        </div>
+                        <div className="max-h-60 overflow-y-auto">
+                          {filteredCountries.length > 0 ? (
+                            filteredCountries.map((country) => (
+                              <button
+                                key={country.code}
+                                type="button"
+                                onClick={() => handleCountrySelect(country)}
+                                className="w-full flex items-center gap-2 p-3 hover:bg-navy/5 transition-all text-left"
+                              >
+                                {country.code === 'OTHER' ? (
+                                  <span className="text-2xl">🌍</span>
+                                ) : (
+                                  <img
+                                    src={getFlagUrl(country.code)}
+                                    alt={country.name}
+                                    className="w-6 h-4 object-cover rounded"
+                                  />
+                                )}
+                                <span className="text-navy">{country.name}</span>
+                              </button>
+                            ))
+                          ) : (
+                            <div className="p-3 text-navy/50 text-sm text-center">No countries found</div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-2">
                 <label className="text-sm font-medium flex items-center gap-2 text-navy">
                   <GraduationCap className="w-4 h-4 text-softPurple" />
                   University (Optional)
                 </label>
-                <Input
-                  name="university"
-                  value={formData.university}
-                  onChange={handleChange}
-                  placeholder="Enter your university"
-                  className="rounded-xl"
-                />
+                {loadingUniversities ? (
+                  <div className="text-navy/70 text-sm">Loading universities...</div>
+                ) : universities.length > 0 && !isOtherUniversity ? (
+                  <div className="relative university-dropdown">
+                    <div className="relative">
+                      <Input
+                        name="university"
+                        value={formData.university || universitySearchQuery}
+                        onChange={(e) => {
+                          handleChange(e);
+                          setUniversitySearchQuery(e.target.value);
+                          setShowUniversityDropdown(true);
+                        }}
+                        onFocus={() => setShowUniversityDropdown(true)}
+                        placeholder="Search or select your university"
+                        className="university-input rounded-xl pr-10"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowUniversityDropdown(!showUniversityDropdown)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-navy/50 hover:text-navy"
+                      >
+                        <ChevronDown className="w-4 h-4" />
+                      </button>
+                    </div>
+                    {showUniversityDropdown && (
+                      <div className="absolute z-50 w-full mt-2 bg-white border-2 border-navy/20 rounded-xl shadow-lg max-h-80 overflow-hidden">
+                        <div className="p-3 border-b border-navy/10">
+                          <div className="relative">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-navy/50" />
+                            <input
+                              type="text"
+                              placeholder="Search universities..."
+                              value={universitySearchQuery}
+                              onChange={(e) => setUniversitySearchQuery(e.target.value)}
+                              className="w-full pl-9 pr-3 py-2 rounded-lg border border-navy/20 text-sm focus:outline-none focus:border-coral text-navy"
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                          </div>
+                        </div>
+                        <div className="max-h-60 overflow-y-auto">
+                          {filteredUniversities.length > 0 ? (
+                            <>
+                              {filteredUniversities.map((uni) => (
+                                <button
+                                  key={uni.name}
+                                  type="button"
+                                  onClick={() => handleUniversitySelect(uni.name)}
+                                  className="w-full p-3 hover:bg-navy/5 transition-all text-left text-navy"
+                                >
+                                  {uni.name}
+                                </button>
+                              ))}
+                              <button
+                                type="button"
+                                onClick={() => handleUniversitySelect('Other')}
+                                className="w-full p-3 hover:bg-navy/5 transition-all text-left text-navy border-t border-navy/10 font-medium"
+                              >
+                                Other...
+                              </button>
+                            </>
+                          ) : (
+                            <div className="p-3 text-navy/50 text-sm text-center">No universities found</div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
+                    <Input
+                      name="university"
+                      value={formData.university}
+                      onChange={handleChange}
+                      placeholder="Enter your university"
+                      className="rounded-xl flex-1"
+                    />
+                    {universities.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsOtherUniversity(false);
+                          setShowUniversityDropdown(true);
+                        }}
+                        className="px-3 py-2 rounded-xl border-2 border-navy/20 bg-white hover:border-coral/50 transition-all text-navy"
+                      >
+                        <ChevronDown className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div className="space-y-2">

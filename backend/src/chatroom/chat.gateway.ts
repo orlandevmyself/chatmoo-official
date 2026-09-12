@@ -264,7 +264,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @SubscribeMessage('sendMessage')
   async handleMessage(
     client: Socket,
-    payload: { chatroomId: string; content: string; type?: string; imageUrl?: string },
+    payload: { chatroomId: string; content: string; type?: string; imageUrl?: string; replyTo?: any },
   ) {
     const sessionId = this.userSessions.get(client.id);
     console.log(`[WS] sendMessage - Socket: ${client.id}, Session: ${sessionId}, Payload:`, payload);
@@ -291,6 +291,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       content: payload.content,
       imageUrl: payload.imageUrl,
       type: payload.type || 'text',
+      replyToId: payload.replyTo?.id,
     });
 
     console.log(`[WS] Message created:`, message);
@@ -421,7 +422,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const chatroom = await this.chatroomService.getChatroomBySession(sessionId);
     if (chatroom) {
       const roomName = `chatroom:${chatroom.id}`;
-      
+
       // Find the partner session
       const partnerMember = chatroom.members.find(
         (member) => member.sessionId !== sessionId && member.leftAt === null
@@ -444,10 +445,33 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       // Leave the chatroom
       client.leave(roomName);
-      
+
       // Clear typing status
       this.typingUsers.delete(chatroom.id);
     }
+
+    return { success: true };
+  }
+
+  @SubscribeMessage('messageReaction')
+  async handleMessageReaction(client: Socket, payload: { chatroomId: string; messageId: string; reacted: boolean }) {
+    const sessionId = this.userSessions.get(client.id);
+    console.log(`[WS] messageReaction - Socket: ${client.id}, Session: ${sessionId}, Payload:`, payload);
+
+    if (!sessionId) {
+      console.log(`[WS] messageReaction failed - No session found for socket ${client.id}`);
+      return { error: 'No session found' };
+    }
+
+    const roomName = `chatroom:${payload.chatroomId}`;
+    console.log(`[WS] Broadcasting reaction to room ${roomName}`);
+
+    // Broadcast reaction to all users in the chatroom
+    this.server.to(roomName).emit('messageReaction', {
+      messageId: payload.messageId,
+      reacted: payload.reacted,
+      sessionId,
+    });
 
     return { success: true };
   }

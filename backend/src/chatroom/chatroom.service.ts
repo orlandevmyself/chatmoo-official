@@ -101,6 +101,7 @@ export class ChatroomService {
     content: string;
     imageUrl?: string;
     type?: string;
+    replyToId?: string;
   }) {
     console.log('[ChatroomService] Creating message:', data);
     const message = await this.prisma.message.create({
@@ -110,8 +111,12 @@ export class ChatroomService {
         content: data.content,
         imageUrl: data.imageUrl,
         type: data.type || 'text',
+        replyToId: data.replyToId,
       },
-    });
+      include: {
+        replyTo: true,
+      },
+    } as any);
 
     console.log('[ChatroomService] Message created successfully:', message);
 
@@ -127,7 +132,10 @@ export class ChatroomService {
       orderBy: {
         createdAt: 'asc',
       },
-    });
+      include: {
+        replyTo: true,
+      },
+    } as any);
   }
 
   async getChatroomBySession(sessionId: string) {
