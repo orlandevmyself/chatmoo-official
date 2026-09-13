@@ -1,23 +1,43 @@
 import { Controller, Post, Body, Get, Param, Put, Delete } from '@nestjs/common';
 import { SessionService } from './session.service';
+import { PrismaService } from '../prisma/prisma.service';
 
 @Controller('sessions')
 export class SessionController {
-  constructor(private readonly sessionService: SessionService) {}
+  constructor(
+    private readonly sessionService: SessionService,
+    private prisma: PrismaService,
+  ) {}
 
   @Post()
   async create(@Body() body: {
-    userId: string;
+    userId?: string;
     username: string;
-    country?: string;
-    countryCode?: string;
-    university?: string;
     genderFilter?: string;
-    gender?: string;
-    avatar?: string;
-    avatarSeed?: string;
   }) {
-    return this.sessionService.createSession(body);
+    // If userId is provided, get user profile data
+    let profileData = {};
+    if (body.userId) {
+      const user = await this.prisma.user.findUnique({
+        where: { id: body.userId },
+      } as any);
+      if (user) {
+        profileData = {
+          username: user.username || user.displayName || user.name,
+          country: user.country,
+          countryCode: user.countryCode,
+          university: user.university,
+          gender: user.gender,
+          avatar: user.avatar,
+          avatarSeed: user.avatarSeed,
+        };
+      }
+    }
+
+    return this.sessionService.createSession({
+      ...body,
+      ...profileData,
+    });
   }
 
   @Get(':id')

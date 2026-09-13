@@ -5,9 +5,10 @@ import { ChatGateway } from './chat.gateway';
 import { PrismaModule } from '../prisma/prisma.module';
 import { RedisModule } from '../redis/redis.module';
 import { SessionModule } from '../session/session.module';
+import { ConversationsModule } from '../conversations/conversations.module';
 
 @Module({
-  imports: [PrismaModule, RedisModule, SessionModule],
+  imports: [PrismaModule, RedisModule, SessionModule, ConversationsModule],
   controllers: [ChatroomController],
   providers: [ChatroomService, ChatGateway],
   exports: [ChatroomService, ChatGateway],

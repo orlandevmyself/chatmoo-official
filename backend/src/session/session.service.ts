@@ -10,7 +10,7 @@ export class SessionService {
   ) {}
 
   async createSession(data: {
-    userId: string;
+    userId?: string;
     username: string;
     country?: string;
     countryCode?: string;
@@ -44,12 +44,12 @@ export class SessionService {
         sessionId: session.id,
         username: session.username,
         country: session.country,
-        countryCode: data.countryCode,
+        countryCode: session.countryCode,
         university: session.university,
         genderFilter: session.genderFilter,
         gender: session.gender,
-        avatar: (session as any).avatar || 'adventurer',
-        avatarSeed: (session as any).avatarSeed,
+        avatar: session.avatar || 'adventurer',
+        avatarSeed: session.avatarSeed,
         timestamp: Date.now(),
       }),
     );
@@ -61,30 +61,43 @@ export class SessionService {
     return this.prisma.session.findUnique({
       where: { id },
       include: { user: true },
-    });
+    } as any);
   }
 
   async updateSessionStatus(id: string, status: string) {
-    const session = await this.prisma.session.update({
-      where: { id },
-      data: { status },
-    });
+    try {
+      const session = await this.prisma.session.update({
+        where: { id },
+        data: { status },
+      });
 
-    // Remove from queue if ended or inactive
-    if (status === 'ended' || status === 'inactive') {
-      const redisClient = this.redis.getClient();
-      await redisClient.del(`queue:${id}`);
-      await redisClient.del(`searching:${id}`); // Also remove from searching
+      // Remove from queue if ended or inactive
+      if (status === 'ended' || status === 'inactive') {
+        const redisClient = this.redis.getClient();
+        await redisClient.del(`queue:${id}`);
+        await redisClient.del(`searching:${id}`); // Also remove from searching
+      }
+
+      return session;
+    } catch (error: any) {
+      // Handle case where session doesn't exist
+      if (error.code === 'P2025') {
+        console.log(`[SessionService] Session ${id} not found, skipping status update`);
+        // Clean up Redis entries even if session doesn't exist
+        const redisClient = this.redis.getClient();
+        await redisClient.del(`queue:${id}`);
+        await redisClient.del(`searching:${id}`);
+        return null;
+      }
+      throw error;
     }
-
-    return session;
   }
 
   async getActiveSessions() {
     return this.prisma.session.findMany({
       where: { status: 'active' },
       include: { user: true },
-    });
+    } as any);
   }
 
   async getMatchingSession(excludeSessionId: string, genderFilter?: string) {
@@ -114,9 +127,19 @@ export class SessionService {
     const redisClient = this.redis.getClient();
     await redisClient.del(`queue:${id}`);
     await redisClient.del(`searching:${id}`);
-    return this.prisma.session.delete({
-      where: { id },
-    });
+    
+    try {
+      return this.prisma.session.delete({
+        where: { id },
+      });
+    } catch (error: any) {
+      // Handle case where session doesn't exist
+      if (error.code === 'P2025') {
+        console.log(`[SessionService] Session ${id} not found, skipping deletion`);
+        return null;
+      }
+      throw error;
+    }
   }
 
   async setSearching(id: string, searching: boolean) {
@@ -155,7 +178,7 @@ export class SessionService {
         }),
       },
       include: { user: true },
-    });
+    } as any);
 
     // Clean up stale searching flags for sessions that are no longer active or already matched
     const validSessionIds = sessions.map(s => s.id);

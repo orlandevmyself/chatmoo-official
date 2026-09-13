@@ -8,6 +8,8 @@ import { SessionModule } from './session/session.module';
 import { ChatroomModule } from './chatroom/chatroom.module';
 import { MatchModule } from './match/match.module';
 import { UploadModule } from './upload/upload.module';
+import { AuthModule } from './auth/auth.module';
+import { ConversationsModule } from './conversations/conversations.module';
 
 @Module({
   imports: [
@@ -22,6 +24,8 @@ import { UploadModule } from './upload/upload.module';
     ChatroomModule,
     MatchModule,
     UploadModule,
+    AuthModule,
+    ConversationsModule,
   ],
 })
 export class AppModule {}

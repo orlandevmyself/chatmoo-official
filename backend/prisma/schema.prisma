@@ -8,31 +8,44 @@ datasource db {
 }
 
 model User {
-  id        String   @id @default(uuid())
-  email     String   @unique
-  name      String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  sessions  Session[]
+  id          String   @id @default(uuid())
+  email       String   @unique
+  name        String?
+  displayName String?  // Custom display name (can be changed)
+  username    String?  // Username (unique in practice, not enforced by DB)
+  country     String?  // Country name
+  countryCode String?  // Country code (alpha-2)
+  university  String?  // University
+  gender      String?  // 'male', 'female', 'other'
+  avatar      String   @default("adventurer") // DiceBear avatar style
+  avatarSeed  String?  // Seed for avatar generation
+  profileComplete Boolean @default(false) // Whether user has completed profile setup
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  sessions    Session[]
+  savedConversations SavedConversation[]
+  settings    UserSettings?
+  offersSent SaveOffer[] @relation("offersSent")
+  offersReceived SaveOffer[] @relation("offersReceived")
 }
 
 model Session {
-  id        String   @id @default(uuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  username  String
-  country   String?  // Country name
-  countryCode String? // Country code (alpha-2)
-  university String?
-  genderFilter String? // 'male', 'female', 'all'
-  gender    String? // 'male', 'female', 'other'
-  avatar    String   @default("adventurer") // DiceBear avatar style
-  avatarSeed String? // Seed for avatar generation
-  status    String   @default("active") // 'active', 'matched', 'ended', 'inactive'
-  chatroomId String? // Track current chatroom for session
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  chatrooms ChatroomMember[]
+  id           String   @id @default(uuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  username     String
+  country      String?  // Country name (can override user's country)
+  countryCode  String?  // Country code (can override user's country code)
+  university   String?  // University (can override user's university)
+  genderFilter String?  // 'male', 'female', 'all'
+  gender       String?  // Gender (can override user's gender)
+  avatar       String   @default("adventurer") // DiceBear avatar style (can override user's avatar)
+  avatarSeed   String?  // Seed for avatar generation (can override user's avatar seed)
+  status       String   @default("active") // 'active', 'matched', 'ended', 'inactive'
+  chatroomId   String?  // Track current chatroom for session
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  chatrooms    ChatroomMember[]
 
   @@index([status])
   @@index([genderFilter])
@@ -78,4 +91,84 @@ model Message {
   @@index([chatroomId])
   @@index([createdAt])
   @@index([replyToId])
+}
+
+model SavedConversation {
+  id          String   @id @default(uuid())
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  guestId     String?  // For unauthenticated users (session ID)
+  title       String?  // Auto-generated or custom title
+  partnerUsername String? // Username of the person they chatted with
+  partnerInfo  String?  // JSON string with partner info (country, university, etc.)
+  partnerUserId String? // If partner is authenticated
+  partnerGuestId String? // If partner is unauthenticated
+  currentUserId String? // Session ID of the user who saved this (for identifying own messages)
+  messageCount Int      @default(0)
+  lastMessageAt DateTime @default(now())
+  status      String   @default("active") // 'active', 'ended', 'pending_reconnect'
+  reconnectOffered Boolean @default(false) // Whether reconnection has been offered
+  canReconnect Boolean @default(true) // Whether both parties agreed to reconnection
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  messages    SavedMessage[]
+  saveOffers  SaveOffer[]
+
+  @@index([userId])
+  @@index([guestId])
+  @@index([lastMessageAt])
+  @@index([status])
+}
+
+model SaveOffer {
+  id          String   @id @default(uuid())
+  conversationId String
+  conversation SavedConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  offeredByUserId String? // If offered by authenticated user
+  offeredByUser User?   @relation("offersSent", fields: [offeredByUserId], references: [id], onDelete: Cascade)
+  offeredByGuestId String? // If offered by guest user
+  offeredToUserId String? // If offered to authenticated user
+  offeredToUser   User?   @relation("offersReceived", fields: [offeredToUserId], references: [id], onDelete: Cascade)
+  offeredToGuestId String? // If offered to guest user
+  status      String   @default("pending") // 'pending', 'accepted', 'declined'
+  createdAt   DateTime @default(now())
+  respondedAt DateTime?
+
+  @@index([conversationId])
+  @@index([offeredToUserId])
+  @@index([offeredToGuestId])
+  @@index([status])
+}
+
+model SavedMessage {
+  id                String   @id @default(uuid())
+  conversationId    String
+  conversation      SavedConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId          String   // ID of the sender (could be userId or guest session id)
+  senderUsername    String?  // Username of the sender (optional, can be fetched from session)
+  content           String
+  imageUrl          String?  // For image messages
+  type              String   @default("text") // 'text', 'image', 'system'
+  replyToId         String?  // ID of the message being replied to
+  createdAt         DateTime @default(now())
+
+  @@index([conversationId])
+  @@index([createdAt])
+}
+
+model UserSettings {
+  id                   String   @id @default(uuid())
+  userId               String   @unique
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messageSound         Boolean  @default(true)
+  browserNotifications Boolean  @default(false)
+  typingIndicators     Boolean  @default(true)
+  showAvatars          Boolean  @default(true)
+  showTimestamps       Boolean  @default(true)
+  fontSize             String   @default("medium") // 'small' | 'medium' | 'large'
+  chatTheme            String   @default("default")
+  status               String   @default("online") // 'online' | 'busy' | 'away' | 'invisible'
+  statusMessage        String   @default("")
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 }

@@ -3,6 +3,7 @@ import { SessionService } from '../session/session.service';
 import { ChatroomService } from '../chatroom/chatroom.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ChatGateway } from '../chatroom/chat.gateway';
+import { isGuestUser } from '../auth/auth.constants';
 
 @Injectable()
 export class MatchService {
@@ -13,6 +14,24 @@ export class MatchService {
     @Inject(forwardRef(() => ChatGateway))
     private chatGateway: ChatGateway,
   ) {}
+
+  private buildMatchedSessionPayload(session: any) {
+    return {
+      id: session.id,
+      username: session.username,
+      // Auth users are shown by displayName (it can change any time);
+      // username stays the stable identity. Guests have no displayName.
+      displayName: session.user?.displayName || session.username,
+      country: session.country,
+      countryCode: session.countryCode,
+      university: session.university,
+      gender: session.gender,
+      avatar: session.avatar || 'adventurer',
+      avatarSeed: session.avatarSeed,
+      userId: session.userId || undefined,
+      isAuthenticated: !!session.userId && !isGuestUser(session.user),
+    };
+  }
 
   async findMatch(sessionId: string) {
     const session = await this.sessionService.getSession(sessionId);
@@ -86,45 +105,18 @@ export class MatchService {
     // Notify both users via WebSocket
     this.chatGateway.notifyMatch(sessionId, {
       chatroomId: chatroom.id,
-      matchedSession: {
-        id: matchedSession.id,
-        username: matchedSession.username,
-        country: (matchedSession as any).country,
-        countryCode: (matchedSession as any).countryCode,
-        university: matchedSession.university,
-        gender: matchedSession.gender,
-        avatar: (matchedSession as any).avatar || 'adventurer',
-        avatarSeed: (matchedSession as any).avatarSeed,
-      },
+      matchedSession: this.buildMatchedSessionPayload(matchedSession),
     });
 
     this.chatGateway.notifyMatch(matchedSession.id, {
       chatroomId: chatroom.id,
-      matchedSession: {
-        id: currentSessionDetails.id,
-        username: currentSessionDetails.username,
-        country: (currentSessionDetails as any).country,
-        countryCode: (currentSessionDetails as any).countryCode,
-        university: currentSessionDetails.university,
-        gender: currentSessionDetails.gender,
-        avatar: (currentSessionDetails as any).avatar || 'adventurer',
-        avatarSeed: (currentSessionDetails as any).avatarSeed,
-      },
+      matchedSession: this.buildMatchedSessionPayload(currentSessionDetails),
     });
 
     return {
       matched: true,
       chatroomId: chatroom.id,
-      matchedSession: {
-        id: matchedSession.id,
-        username: matchedSession.username,
-        country: (matchedSession as any).country,
-        countryCode: (matchedSession as any).countryCode,
-        university: matchedSession.university,
-        gender: matchedSession.gender,
-        avatar: (matchedSession as any).avatar || 'adventurer',
-        avatarSeed: (matchedSession as any).avatarSeed,
-      },
+      matchedSession: this.buildMatchedSessionPayload(matchedSession),
     };
   }
 

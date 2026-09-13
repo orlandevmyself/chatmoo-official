@@ -4,8 +4,10 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from './ui/dialog';
-import { User, GraduationCap, Venus, Mars, Transgender, Lock, Crown, Sparkles, X, Check, XCircle, CreditCard, Wallet, Landmark, RefreshCw, ChevronDown, Search } from 'lucide-react';
+import { User, GraduationCap, Venus, Mars, Transgender, Lock, Crown, Sparkles, X, Check, XCircle, CreditCard, Wallet, Landmark, RefreshCw, ChevronDown, Search, LogOut } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { sessionManager } from '../utils/sessionManager';
+
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3000';
 const UNIVERSITIES_API = 'http://universities.hipolabs.com/search';
@@ -35,16 +37,16 @@ const COUNTRIES = [
   { name: 'Other', code: 'OTHER' },
 ];
 
-function LandingPage({ onStartChat }) {
+function LandingPage({ onStartChat, googleUser, guestSession, onLogout }) {
   const [formData, setFormData] = useState({
-    username: '',
-    country: 'Philippines',
-    countryCode: 'PH',
-    university: '',
-    gender: '',
-    genderFilter: 'all',
-    avatar: 'adventurer',
-    avatarSeed: '',
+    username: guestSession?.username || '',
+    country: guestSession?.country || 'Philippines',
+    countryCode: guestSession?.countryCode || 'PH',
+    university: guestSession?.university || '',
+    gender: guestSession?.gender || '',
+    genderFilter: guestSession?.genderFilter || 'all',
+    avatar: guestSession?.avatar || 'adventurer',
+    avatarSeed: guestSession?.avatarSeed || '',
   });
   const [selectedAvatarStyle, setSelectedAvatarStyle] = useState('adventurer');
   const [avatarSeed, setAvatarSeed] = useState('');
@@ -56,6 +58,24 @@ function LandingPage({ onStartChat }) {
   const [showUniversityDropdown, setShowUniversityDropdown] = useState(false);
   const [isOtherCountry, setIsOtherCountry] = useState(false);
   const [isOtherUniversity, setIsOtherUniversity] = useState(false);
+
+  // Load guest session data when available
+  useEffect(() => {
+    if (guestSession && !googleUser) {
+      setFormData({
+        username: guestSession.username || '',
+        country: guestSession.country || 'Philippines',
+        countryCode: guestSession.countryCode || 'PH',
+        university: guestSession.university || '',
+        gender: guestSession.gender || '',
+        genderFilter: guestSession.genderFilter || 'all',
+        avatar: guestSession.avatar || 'adventurer',
+        avatarSeed: guestSession.avatarSeed || '',
+      });
+      setSelectedAvatarStyle(guestSession.avatar || 'adventurer');
+      setAvatarSeed(guestSession.avatarSeed || '');
+    }
+  }, [guestSession, googleUser]);
 
   // Fetch universities when country changes
   useEffect(() => {
@@ -178,6 +198,8 @@ function LandingPage({ onStartChat }) {
     return `https://flagcdn.com/w80/${countryCode.toLowerCase()}.png`;
   };
 
+
+
   const handleGenderSelect = (gender) => {
     setFormData({
       ...formData,
@@ -202,13 +224,20 @@ function LandingPage({ onStartChat }) {
     setError('');
 
     try {
-      const timestamp = Date.now();
-      const userResponse = await axios.post(`${API_URL}/users`, {
-        email: `${formData.username}${timestamp}@chatmoo.com`,
-        name: formData.username,
-      });
-
-      const userId = userResponse.data.id;
+      let userId;
+      
+      if (googleUser) {
+        // Use authenticated user's ID
+        userId = googleUser.id;
+      } else {
+        // Create guest user
+        const timestamp = Date.now();
+        const userResponse = await axios.post(`${API_URL}/users`, {
+          email: `${formData.username}${timestamp}@chatmoo.com`,
+          name: formData.username,
+        });
+        userId = userResponse.data.id;
+      }
 
       const sessionResponse = await axios.post(`${API_URL}/sessions`, {
         userId,
@@ -230,7 +259,13 @@ function LandingPage({ onStartChat }) {
         avatarSeed: avatarSeed || formData.username,
         country: formData.country,
         countryCode: formData.countryCode,
+        isGuest: !googleUser, // Mark as guest session
       };
+
+      // Save guest session if not authenticated
+      if (!googleUser) {
+        sessionManager.saveGuestSession(sessionData);
+      }
 
       onStartChat(sessionData);
     } catch (err) {
@@ -371,6 +406,38 @@ function LandingPage({ onStartChat }) {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
+            {!googleUser && (
+              <div className="flex justify-center">
+                <a
+                  href={`${API_URL}/auth/google`}
+                  className="flex items-center justify-center gap-2 px-6 py-3 bg-white border-2 border-gray-300 rounded-lg hover:bg-gray-50 transition-all"
+                >
+                  <svg width="18" height="18" viewBox="0 0 18 18">
+                    <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" fill="#4285F4"/>
+                    <path d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.715H.957v2.332A8.997 8.997 0 0 0 9 18z" fill="#34A853"/>
+                    <path d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z" fill="#FBBC05"/>
+                    <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.159 6.656 3.58 9 3.58z" fill="#EA4335"/>
+                  </svg>
+                  <span className="text-gray-700 font-medium">Sign in with Google</span>
+                </a>
+              </div>
+            )}
+            {googleUser && (
+              <div className="bg-green-50 border border-green-200 rounded-lg p-3 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Check className="w-5 h-5 text-green-600" />
+                  <span className="text-sm text-green-800">Signed in as {googleUser.name}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={onLogout}
+                  className="flex items-center gap-1 text-sm text-red-600 hover:text-red-700 transition-colors"
+                >
+                  <LogOut className="w-4 h-4" />
+                  <span>Logout</span>
+                </button>
+              </div>
+            )}
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
                 <label className="text-sm font-medium flex items-center gap-2 text-navy">

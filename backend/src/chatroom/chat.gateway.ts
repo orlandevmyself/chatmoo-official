@@ -10,6 +10,11 @@ import { Server, Socket } from 'socket.io';
 import { ChatroomService } from './chatroom.service';
 import { SessionService } from '../session/session.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { RedisService } from '../redis/redis.service';
+import { SaveOfferService } from '../conversations/save-offer.service';
+import { ConversationsService } from '../conversations/conversations.service';
+import { ReconnectionService } from '../conversations/reconnection.service';
+import { isGuestUser } from '../auth/auth.constants';
 
 @WebSocketGateway({
   cors: {
@@ -23,12 +28,18 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   private userSessions = new Map<string, string>(); // socketId -> sessionId
   private sessionSockets = new Map<string, string>(); // sessionId -> socketId
+  private userSockets = new Map<string, Set<string>>(); // userId -> socketIds (authenticated users only)
   private typingUsers = new Map<string, Set<string>>(); // chatroomId -> Set of sessionIds
+  private liveToSavedMessage = new Map<string, string>(); // live Message id -> SavedMessage id (continued conversations)
 
   constructor(
     private chatroomService: ChatroomService,
     private sessionService: SessionService,
     private prisma: PrismaService,
+    private redis: RedisService,
+    private saveOfferService: SaveOfferService,
+    private conversationsService: ConversationsService,
+    private reconnectionService: ReconnectionService,
   ) {}
 
   // Helper method to get socket ID by session ID
@@ -100,6 +111,14 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       if (session && session.status === 'inactive') {
         await this.sessionService.updateSessionStatus(sessionId, 'active');
         console.log(`[WS] Reactivated session ${sessionId} on reconnection`);
+      }
+
+      // Track sockets per authenticated user (used for conversation notifications)
+      const connectedSession: any = session;
+      if (connectedSession?.userId && connectedSession.user && !isGuestUser(connectedSession.user)) {
+        const sockets = this.userSockets.get(connectedSession.userId) || new Set<string>();
+        sockets.add(client.id);
+        this.userSockets.set(connectedSession.userId, sockets);
       }
 
       // Join the user's chatroom if they have one
@@ -202,6 +221,13 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.userSessions.delete(client.id);
       this.sessionSockets.delete(sessionId);
 
+      // Clear per-user socket tracking
+      for (const [userId, sockets] of this.userSockets.entries()) {
+        if (sockets.delete(client.id) && sockets.size === 0) {
+          this.userSockets.delete(userId);
+        }
+      }
+
       // Set a timeout before marking session as inactive to allow for reconnection
       setTimeout(async () => {
         // Check if session has reconnected (socket mapping exists again)
@@ -264,7 +290,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @SubscribeMessage('sendMessage')
   async handleMessage(
     client: Socket,
-    payload: { chatroomId: string; content: string; type?: string; imageUrl?: string; replyTo?: any },
+    payload: { chatroomId: string; content: string; type?: string; imageUrl?: string; replyTo?: any; conversationId?: string },
   ) {
     const sessionId = this.userSessions.get(client.id);
     console.log(`[WS] sendMessage - Socket: ${client.id}, Session: ${sessionId}, Payload:`, payload);
@@ -285,24 +311,45 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
     console.log(`[WS] Creating message with senderId: ${sessionId}`);
+// replyToId must reference a live Message row; ids coming from saved
+// conversation history (SavedMessage ids) are kept for display only.
+    let replyToId = payload.replyTo?.id;
+    if (replyToId) {
+      const replyTarget = await (this.prisma as any).message.findUnique({
+        where: { id: replyToId },
+      });
+      if (!replyTarget) {
+        replyToId = undefined;
+      }
+    }
     const message = await this.chatroomService.addMessage({
       chatroomId: payload.chatroomId,
       senderId: sessionId,
       content: payload.content,
       imageUrl: payload.imageUrl,
       type: payload.type || 'text',
-      replyToId: payload.replyTo?.id,
+      replyToId,
     });
 
-    console.log(`[WS] Message created:`, message);
-    console.log(`[WS] Message senderId in created message: ${message.senderId}`);
+    // Get sender session to include username
+    const senderSession = await this.sessionService.getSession(sessionId);
+    const messageWithUsername = {
+      ...message,
+      senderUsername: senderSession?.username || 'Anonymous',
+      // Fall back to the client-provided reply preview (e.g. when replying
+      // to a saved-history message that has no live Message row).
+      replyTo: (message as any).replyTo || payload.replyTo || null,
+    };
+
+    console.log(`[WS] Message created:`, messageWithUsername);
+    console.log(`[WS] Message senderId in created message: ${messageWithUsername.senderId}`);
     console.log(`[WS] Broadcasting message to room ${roomName} (excluding sender)`);
 
     // Broadcast message to all users in the chatroom except sender
-    this.server.to(roomName).except(client.id).emit('newMessage', message);
+    this.server.to(roomName).except(client.id).emit('newMessage', messageWithUsername);
 
     // Emit to the sender for immediate feedback
-    client.emit('newMessage', message);
+    client.emit('newMessage', messageWithUsername);
 
     // Clear typing status for this user after sending a message
     const typingSet = this.typingUsers.get(payload.chatroomId);
@@ -311,6 +358,46 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.server.to(roomName).except(client.id).emit('typingStatus', {
         sessionIds: Array.from(typingSet),
       });
+    }
+
+    // If this message belongs to a continued saved conversation, persist it there too
+    if (payload.conversationId) {
+      try {
+        // Translate the reply target to a SavedMessage id so the reply
+        // preview still resolves when the conversation is reopened later.
+        let savedReplyToId = payload.replyTo?.id;
+        if (savedReplyToId) {
+          const mapped = this.liveToSavedMessage.get(savedReplyToId);
+          if (mapped) {
+            savedReplyToId = mapped;
+          } else {
+            const existingSaved = await (this.prisma as any).savedMessage.findFirst({
+              where: { id: savedReplyToId, conversationId: payload.conversationId },
+            });
+            if (!existingSaved) {
+              savedReplyToId = undefined;
+            }
+          }
+        }
+        const appendResult: any = await this.conversationsService.appendMessages(
+          payload.conversationId,
+          { sessionId, userId: senderSession?.userId },
+          [{
+            senderId: sessionId,
+            senderUsername: senderSession?.username || 'Anonymous',
+            content: payload.content,
+            imageUrl: payload.imageUrl,
+            type: payload.type || 'text',
+            replyToId: savedReplyToId,
+          }],
+        );
+        const firstSavedId = appendResult?.savedIds?.[0];
+        if (firstSavedId) {
+          this.liveToSavedMessage.set(message.id, firstSavedId);
+        }
+      } catch (persistError: any) {
+        console.error('[WS] Failed to persist conversation message:', persistError?.message);
+      }
     }
 
     return { success: true, message };
@@ -367,6 +454,180 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
     return { success: true };
+  }
+
+  @SubscribeMessage('offerToSave')
+  async handleOfferToSave(client: Socket, payload: {
+    partnerSessionId: string;
+    partnerUserId?: string;
+    partnerGuestId?: string;
+    partnerUsername?: string;
+    partnerInfo?: string;
+    messages: Array<{
+      senderId: string;
+      senderUsername: string;
+      content: string;
+      imageUrl?: string;
+      type?: string;
+      replyToId?: string;
+    }>;
+  }) {
+    const sessionId = this.userSessions.get(client.id);
+    console.log('[WS] offerToSave - Session:', sessionId, 'Partner:', payload.partnerSessionId);
+    
+    if (!sessionId) {
+      return { error: 'No session found' };
+    }
+
+    try {
+      // Get current session info
+      const currentSession: any = await this.sessionService.getSession(sessionId);
+      if (!currentSession) {
+        return { error: 'Session not found' };
+      }
+
+      // Check user types and route accordingly
+      const isCurrentAuth = !!currentSession.userId && !isGuestUser(currentSession.user);
+      const isPartnerAuth = !!payload.partnerUserId;
+
+      console.log('[WS] User types - Current auth:', isCurrentAuth, 'Partner auth:', isPartnerAuth);
+
+      if (isCurrentAuth && !isPartnerAuth) {
+        // AUTH <-> UNAUTH: Auto-save directly via conversations service
+        console.log('[WS] Auto-saving conversation (auth to unauth)');
+        
+        const conversationData = {
+          userId: currentSession.userId,
+          title: `Chat with ${payload.partnerUsername || 'Anonymous'}`,
+          partnerUsername: payload.partnerUsername,
+          partnerInfo: payload.partnerInfo,
+          partnerUserId: payload.partnerUserId,
+          partnerGuestId: payload.partnerGuestId,
+          messages: payload.messages,
+        };
+
+        const result = await this.conversationsService.saveConversation(currentSession.userId, conversationData);
+        return { success: true, conversationId: result.id, autoSaved: true };
+      } else if (!isCurrentAuth && isPartnerAuth) {
+        // UNAUTH <-> AUTH: Guest users can't save
+        console.log('[WS] Guest user cannot save conversations');
+        return { error: 'Guest users cannot save conversations' };
+      } else if (!isCurrentAuth && !isPartnerAuth) {
+        // UNAUTH <-> UNAUTH: Neither can save
+        console.log('[WS] Both unauth, conversation cannot be saved');
+        return { error: 'Guest users cannot save conversations' };
+      } else {
+        // AUTH <-> AUTH: Use save offer system
+        console.log('[WS] Creating save offer (auth to auth)');
+        const result = await this.saveOfferService.offerToSaveConversation({
+          userId: currentSession.userId,
+          guestId: currentSession.userId ? undefined : sessionId,
+          partnerUserId: payload.partnerUserId,
+          partnerGuestId: payload.partnerGuestId,
+          partnerUsername: payload.partnerUsername,
+          partnerInfo: payload.partnerInfo,
+          messages: payload.messages,
+        });
+
+        // Notify the partner about the save offer
+        const partnerSocketId = this.getSocketIdBySessionId(payload.partnerSessionId);
+        if (partnerSocketId) {
+          this.server.to(partnerSocketId).emit('saveOfferReceived', {
+            offerId: result.saveOffer.id,
+            conversationId: result.conversation.id,
+            offeredBy: currentSession.username,
+            offeredByUserId: currentSession.userId,
+            messageCount: result.conversation.messageCount,
+          });
+          console.log('[WS] Notified partner about save offer');
+        }
+
+        return { success: true, offerId: result.saveOffer.id, conversationId: result.conversation.id };
+      }
+    } catch (error: any) {
+      console.error('[WS] Error in save operation:', error);
+      return { error: error.message || 'Failed to save conversation' };
+    }
+  }
+
+  @SubscribeMessage('respondToSaveOffer')
+  async handleRespondToSaveOffer(client: Socket, payload: {
+    offerId: string;
+    response: 'accepted' | 'declined';
+  }) {
+    const sessionId = this.userSessions.get(client.id);
+    console.log('[WS] respondToSaveOffer - Session:', sessionId, 'Offer:', payload.offerId, 'Response:', payload.response);
+    
+    if (!sessionId) {
+      return { error: 'No session found' };
+    }
+
+    try {
+      // Get current session info
+      const currentSession: any = await this.sessionService.getSession(sessionId);
+      if (!currentSession) {
+        return { error: 'Session not found' };
+      }
+
+      // Respond to save offer
+      const responderIsGuest = isGuestUser(currentSession.user);
+      const result = await this.saveOfferService.respondToSaveOffer(
+        payload.offerId,
+        payload.response,
+        responderIsGuest ? undefined : (currentSession.userId as string | undefined),
+        responderIsGuest ? sessionId : undefined,
+      );
+
+      // If accepted, notify both parties
+      if (payload.response === 'accepted') {
+        const offer = await (this.prisma as any).saveOffer.findUnique({
+          where: { id: payload.offerId },
+          include: { conversation: true },
+        });
+
+        if (offer) {
+          // Notify the offerer that their offer was accepted
+          const offererSocketId = offer.offeredByUserId 
+            ? this.getSocketIdBySessionId(offer.offeredByUserId)
+            : this.getSocketIdBySessionId(offer.offeredByGuestId);
+          
+          if (offererSocketId) {
+            this.server.to(offererSocketId).emit('saveOfferAccepted', {
+              conversationId: offer.conversationId,
+              partnerAccepted: true,
+            });
+          }
+
+          // Notify the responder that the conversation is now saved
+          client.emit('conversationSaved', {
+            conversationId: offer.conversationId,
+            canReconnect: true,
+          });
+        }
+      } else {
+        // Notify the offerer that their offer was declined
+        const offer = await (this.prisma as any).saveOffer.findUnique({
+          where: { id: payload.offerId },
+        });
+
+        if (offer) {
+          const offererSocketId = offer.offeredByUserId 
+            ? this.getSocketIdBySessionId(offer.offeredByUserId)
+            : this.getSocketIdBySessionId(offer.offeredByGuestId);
+          
+          if (offererSocketId) {
+            this.server.to(offererSocketId).emit('saveOfferDeclined', {
+              offerId: payload.offerId,
+            });
+          }
+        }
+      }
+
+      return { success: true };
+    } catch (error: any) {
+      console.error('[WS] Error responding to save offer:', error);
+      return { error: 'Failed to respond to save offer' };
+    }
   }
 
   @SubscribeMessage('skipMatch')
@@ -474,5 +735,298 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     });
 
     return { success: true };
+  }
+
+  @SubscribeMessage('joinConversation')
+  async handleJoinConversation(client: Socket, payload: { conversationId: string }) {
+    const sessionId = this.userSessions.get(client.id);
+    console.log('[WS] joinConversation - Socket:', client.id, 'Session:', sessionId, 'Conversation:', payload?.conversationId);
+
+    if (!sessionId) {
+      return { error: 'No session found' };
+    }
+
+    try {
+      const currentSession: any = await this.sessionService.getSession(sessionId);
+      if (!currentSession) {
+        return { error: 'Session not found' };
+      }
+      const myUserId = currentSession.userId as string | undefined;
+
+      const conversation = await (this.prisma as any).savedConversation.findUnique({
+        where: { id: payload.conversationId },
+        include: {
+          user: { select: { id: true, username: true, displayName: true, avatar: true, avatarSeed: true } },
+        },
+      });
+
+      if (!conversation) {
+        return { error: 'Conversation not found' };
+      }
+
+      // Only participants (owner or partner side) may join
+      const isParticipant =
+        (myUserId && (conversation.userId === myUserId || conversation.partnerUserId === myUserId)) ||
+        (conversation.guestId === sessionId || conversation.partnerGuestId === sessionId);
+
+      if (!isParticipant) {
+        return { error: 'You are not authorized to join this conversation' };
+      }
+
+      // Find or create the shared live chatroom for this conversation (cached in Redis)
+      const mapKey = `convchat:${conversation.id}`;
+      const mapTtl = 30 * 24 * 3600; // 30 days
+      let chatroomId: string | null = await this.redis.get(mapKey);
+      let chatroom: any = null;
+
+      if (chatroomId) {
+        chatroom = await this.chatroomService.getChatroom(chatroomId);
+        if (!chatroom || chatroom.status !== 'active') {
+          chatroom = null;
+          chatroomId = null;
+        }
+      }
+
+      if (!chatroom) {
+        const created = await this.chatroomService.createChatroom([sessionId]);
+        // Claim the mapping atomically; if the partner claimed it first, use theirs
+        const redisClient: any = this.redis.getClient();
+        const claimed = await redisClient.set(mapKey, created.id, 'EX', mapTtl, 'NX');
+        if (claimed === 'OK') {
+          chatroom = created;
+          chatroomId = created.id;
+        } else {
+          await this.chatroomService.endChatroom(created.id);
+          chatroomId = await this.redis.get(mapKey);
+          chatroom = chatroomId ? await this.chatroomService.getChatroom(chatroomId) : null;
+          if (!chatroom || chatroom.status !== 'active') {
+            const retry = await this.chatroomService.createChatroom([sessionId]);
+            await this.redis.set(mapKey, retry.id, mapTtl);
+            chatroom = retry;
+            chatroomId = retry.id;
+          }
+        }
+      } else {
+        // Refresh mapping TTL while the conversation is in use
+        await this.redis.set(mapKey, chatroomId as string, mapTtl);
+      }
+
+      // Ensure membership (rejoin clears leftAt)
+      const existingMember = await (this.prisma as any).chatroomMember.findFirst({
+        where: { chatroomId, sessionId },
+      });
+      if (existingMember) {
+        if (existingMember.leftAt) {
+          await (this.prisma as any).chatroomMember.update({
+            where: { id: existingMember.id },
+            data: { leftAt: null },
+          });
+        }
+      } else {
+        await (this.prisma as any).chatroomMember.create({
+          data: { chatroomId, sessionId },
+        });
+      }
+
+      // Join the live chatroom room + the conversation presence room
+      const roomName = `chatroom:${chatroomId}`;
+      const convRoom = `conversation:${conversation.id}`;
+      client.rooms.forEach((room) => {
+        if (room.startsWith('chatroom:')) {
+          client.leave(room);
+        }
+      });
+      client.join(roomName);
+      client.join(convRoom);
+
+      // Load saved history mapped to the live chat message shape
+      const saved = await (this.prisma as any).savedMessage.findMany({
+        where: { conversationId: conversation.id },
+        orderBy: { createdAt: 'asc' },
+      });
+      const byId = new Map<string, any>(saved.map((m: any) => [m.id, m]));
+      const messages = saved.map((m: any) => {
+        const replied = m.replyToId ? byId.get(m.replyToId) : null;
+        return {
+          id: m.id,
+          chatroomId,
+          conversationId: conversation.id,
+          senderId: m.senderId,
+          senderUsername: m.senderUsername,
+          content: m.content,
+          imageUrl: m.imageUrl,
+          type: m.type || 'text',
+          replyTo: replied
+            ? { id: replied.id, content: replied.content, senderId: replied.senderId }
+            : null,
+          createdAt: m.createdAt,
+        };
+      });
+
+      // Sender ids that belong to the viewer. Old sessions are recognized via
+      // the viewer's username; stored session ids are only trusted for the
+      // viewer's own side so the partner's old messages are never misattributed.
+      const iAmOwner = !!myUserId && conversation.userId === myUserId;
+      const ownSenderIds = new Set<string>([sessionId]);
+      if (iAmOwner && conversation.currentUserId) ownSenderIds.add(conversation.currentUserId);
+      if (conversation.guestId === sessionId) ownSenderIds.add(conversation.guestId);
+      if (conversation.partnerGuestId === sessionId) ownSenderIds.add(conversation.partnerGuestId);
+      for (const m of saved) {
+        if (m.senderUsername && m.senderUsername === currentSession.username) {
+          ownSenderIds.add(m.senderId);
+        }
+      }
+
+      // Viewer-relative partner descriptor (auth people shown by live displayName)
+      let partner: any;
+      if (iAmOwner) {
+        let info: any = {};
+        try {
+          info = conversation.partnerInfo ? JSON.parse(conversation.partnerInfo) : {};
+        } catch {
+          info = {};
+        }
+        let livePartner: any = null;
+        if (conversation.partnerUserId) {
+          livePartner = await (this.prisma as any).user.findUnique({
+            where: { id: conversation.partnerUserId },
+            select: { username: true, displayName: true },
+          });
+        }
+        const partnerUsername = livePartner?.username || conversation.partnerUsername || 'Anonymous';
+        partner = {
+          username: partnerUsername,
+          displayName: livePartner?.displayName || info.displayName || partnerUsername,
+          country: info.country,
+          countryCode: info.countryCode,
+          university: info.university,
+          gender: info.gender,
+          avatar: info.avatar || 'adventurer',
+          avatarSeed: info.avatarSeed,
+          userId: conversation.partnerUserId,
+          isAuthenticated: !!conversation.partnerUserId,
+        };
+      } else {
+        const owner = conversation.user || {};
+        const ownerUsername = owner.username || owner.displayName || conversation.partnerUsername || 'Anonymous';
+        partner = {
+          username: ownerUsername,
+          displayName: owner.displayName || ownerUsername,
+          avatar: owner.avatar || 'adventurer',
+          avatarSeed: owner.avatarSeed,
+          userId: conversation.userId,
+          isAuthenticated: true,
+        };
+      }
+
+      // Presence: anyone else already in the conversation room?
+      const room = this.server.sockets.adapter.rooms.get(convRoom);
+      const partnerOnline = !!room && room.size > 1;
+      client.to(convRoom).emit('conversationPresence', {
+        conversationId: conversation.id,
+        sessionId,
+        username: currentSession.username,
+        online: true,
+      });
+
+      // Direct nudge to the partner's sockets if they are online elsewhere
+      const partnerUserId = iAmOwner ? conversation.partnerUserId : conversation.userId;
+      if (partnerUserId) {
+        const sockets = this.userSockets.get(partnerUserId);
+        if (sockets) {
+          for (const sid of sockets) {
+            if (sid !== client.id) {
+              this.server.to(sid).emit('conversationOpened', {
+                conversationId: conversation.id,
+                byUsername: currentSession.username,
+              });
+            }
+          }
+        }
+      }
+
+      return {
+        success: true,
+        chatroomId,
+        conversationId: conversation.id,
+        messages,
+        ownSenderIds: Array.from(ownSenderIds),
+        partner,
+        partnerOnline,
+      };
+    } catch (error: any) {
+      console.error('[WS] Error joining conversation:', error);
+      return { error: error.message || 'Failed to join conversation' };
+    }
+  }
+
+  @SubscribeMessage('leaveConversation')
+  async handleLeaveConversation(client: Socket, payload: { conversationId: string }) {
+    const sessionId = this.userSessions.get(client.id);
+    if (!sessionId) {
+      return { error: 'No session found' };
+    }
+
+    const convRoom = `conversation:${payload.conversationId}`;
+    client.to(convRoom).emit('conversationPresence', {
+      conversationId: payload.conversationId,
+      sessionId,
+      online: false,
+    });
+    client.leave(convRoom);
+    client.rooms.forEach((room) => {
+      if (room.startsWith('chatroom:')) {
+        client.leave(room);
+      }
+    });
+
+    try {
+      const chatroomId = await this.redis.get(`convchat:${payload.conversationId}`);
+      if (chatroomId) {
+        const member = await (this.prisma as any).chatroomMember.findFirst({
+          where: { chatroomId, sessionId, leftAt: null },
+        });
+        if (member) {
+          await (this.prisma as any).chatroomMember.update({
+            where: { id: member.id },
+            data: { leftAt: new Date() },
+          });
+        }
+      }
+    } catch (error: any) {
+      console.error('[WS] Error leaving conversation:', error?.message);
+    }
+
+    return { success: true };
+  }
+
+  @SubscribeMessage('requestReconnection')
+  async handleRequestReconnection(client: Socket, payload: {
+    conversationId: string;
+    partnerUserId?: string;
+    partnerGuestId?: string;
+  }) {
+    const sessionId = this.userSessions.get(client.id);
+    console.log('[WS] requestReconnection - Session:', sessionId, 'Conversation:', payload.conversationId);
+    
+    if (!sessionId) {
+      return { error: 'No session found' };
+    }
+
+    try {
+      const currentSession = await this.sessionService.getSession(sessionId);
+      if (!currentSession) {
+        return { error: 'Session not found' };
+      }
+
+      // For now, just create a new chatroom for the user
+      // In a full implementation, this would notify the partner and wait for acceptance
+      const chatroom = await this.chatroomService.createChatroom([sessionId]);
+      
+      return { success: true, chatroomId: chatroom.id };
+    } catch (error: any) {
+      console.error('[WS] Error requesting reconnection:', error);
+      return { error: error.message || 'Failed to request reconnection' };
+    }
   }
 }
