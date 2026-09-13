@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { getPaymentProvider } from './payment-providers';
+import { getGift } from './gift-catalog';
 
 // Demo guardrails (minor units = centavos). Real limits/fees/KYC tiers belong
 // to the licensed production configuration, not here.
@@ -64,8 +65,12 @@ export class WalletService {
     const page = Math.max(1, Number(query.page) || 1);
     const limit = Math.min(50, Math.max(1, Number(query.limit) || 20));
     const where: any = { userId };
-    if (query.type === 'deposit' || query.type === 'withdraw') {
-      where.type = query.type;
+    if (['deposit', 'withdraw', 'gift', 'gift_send', 'gift_receive'].includes(query.type || '')) {
+      if (query.type === 'gift') {
+        where.type = { in: ['gift_send', 'gift_receive'] };
+      } else {
+        where.type = query.type;
+      }
     }
     if (['pending', 'completed', 'failed', 'cancelled'].includes(query.status || '')) {
       where.status = query.status;
@@ -280,5 +285,101 @@ export class WalletService {
     });
     if (!tx) throw new NotFoundException('Transaction not found');
     return this.toClient(tx);
+  }
+
+  // Gift transfer: AUTH <-> AUTH only. Atomic debit sender + credit recipient.
+  // Uses WalletTransaction rows gift_send / gift_receive so both sides see it
+  // in their wallet history. Idempotent via idempotencyKey.
+  async sendGift(senderUserId: string, recipientUserId: string, giftKey: string, idempotencyKey?: string) {
+    if (!senderUserId || !recipientUserId) throw new BadRequestException('sender and recipient required');
+    if (senderUserId === recipientUserId) throw new BadRequestException('Cannot gift yourself');
+    const gift = getGift(giftKey);
+    if (!gift) throw new BadRequestException('Unknown gift');
+
+    const amountMinor = gift.amountMinor;
+
+    try {
+      const result = await (this.prisma as any).$transaction(async (t: any) => {
+        const [senderWallet, recipientWallet] = await Promise.all([
+          t.wallet.upsert({
+            where: { userId: senderUserId },
+            create: { userId: senderUserId, balance: 0, currency: 'PHP', status: 'active' },
+            update: {},
+          }),
+          t.wallet.upsert({
+            where: { userId: recipientUserId },
+            create: { userId: recipientUserId, balance: 0, currency: 'PHP', status: 'active' },
+            update: {},
+          }),
+        ]);
+
+        if (senderWallet.status !== 'active' || recipientWallet.status !== 'active') {
+          throw new BadRequestException('Wallet is frozen');
+        }
+
+        const reserved = await t.wallet.updateMany({
+          where: { id: senderWallet.id, balance: { gte: amountMinor } },
+          data: { balance: { decrement: amountMinor } },
+        });
+        if (reserved.count === 0) {
+          throw new BadRequestException('Insufficient balance');
+        }
+
+        await t.wallet.update({
+          where: { id: recipientWallet.id },
+          data: { balance: { increment: amountMinor } },
+        });
+
+        const senderTx = await t.walletTransaction.create({
+          data: {
+            walletId: senderWallet.id,
+            userId: senderUserId,
+            type: 'gift_send',
+            amount: amountMinor,
+            fee: 0,
+            status: 'completed',
+            provider: 'demo',
+            method: 'gift',
+            remarks: `Gift ${gift.label} to ${recipientUserId} (${gift.coins} coins)`,
+            idempotencyKey: idempotencyKey || undefined,
+          },
+        });
+
+        const recipientTx = await t.walletTransaction.create({
+          data: {
+            walletId: recipientWallet.id,
+            userId: recipientUserId,
+            type: 'gift_receive',
+            amount: amountMinor,
+            fee: 0,
+            status: 'completed',
+            provider: 'demo',
+            method: 'gift',
+            remarks: `Gift ${gift.label} from ${senderUserId} (${gift.coins} coins)`,
+          },
+        });
+
+        return { gift, senderTx: this.toClient(senderTx), recipientTx: this.toClient(recipientTx) };
+      });
+
+      console.log('[WalletService] Gift sent:', gift.key, gift.coins, 'coins from', senderUserId, 'to', recipientUserId);
+      return result;
+    } catch (e: any) {
+      if (e?.code === 'P2002' && idempotencyKey) {
+        const existing = await (this.prisma as any).walletTransaction.findUnique({
+          where: { idempotencyKey },
+        });
+        if (existing) {
+          const giftAgain = getGift(giftKey)!;
+          return { gift: giftAgain, senderTx: this.toClient(existing), recipientTx: null, idempotent: true };
+        }
+      }
+      throw e;
+    }
+  }
+
+  async getGiftsCatalog() {
+    const { GIFT_LIST } = await import('./gift-catalog');
+    return GIFT_LIST;
   }
 }

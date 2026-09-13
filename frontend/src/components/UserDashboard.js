@@ -18,14 +18,20 @@ import {
   MessageCircle,
   RefreshCw,
   Wallet,
+  Coins,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3000';
 
+const formatPHP = (minor) =>
+  new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format((minor || 0) / 100);
+
 function UserDashboard({ googleUser, onLogout, onStartChat, onOpenSettings, onOpenWallet, refreshSignal }) {
   const [userProfile, setUserProfile] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [walletBalance, setWalletBalance] = useState(null);
+  const [walletLoading, setWalletLoading] = useState(false);
   const [, setSettingsVersion] = useState(0);
   const menuRef = useRef(null);
 
@@ -34,6 +40,20 @@ function UserDashboard({ googleUser, onLogout, onStartChat, onOpenSettings, onOp
     // Warm the settings cache from the DB, then re-render with DB values
     initAppSettings(googleUser?.id).finally(() => setSettingsVersion((v) => v + 1));
   }, [googleUser, refreshSignal]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!googleUser?.id) {
+      setWalletBalance(null);
+      return;
+    }
+    setWalletLoading(true);
+    axios.get(`${API_URL}/wallet?userId=${googleUser.id}`)
+      .then((res) => { if (!cancelled) setWalletBalance(res.data?.balance ?? null); })
+      .catch(() => { if (!cancelled) setWalletBalance(null); })
+      .finally(() => { if (!cancelled) setWalletLoading(false); });
+    return () => { cancelled = true; };
+  }, [googleUser?.id, refreshSignal]);
 
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -225,6 +245,17 @@ function UserDashboard({ googleUser, onLogout, onStartChat, onOpenSettings, onOp
               <p className="font-medium text-navy truncate">{userProfile?.displayName || userProfile?.username || googleUser?.name || 'User'}</p>
               <p className="text-sm text-navy/60 truncate">@{userProfile?.username || googleUser?.email || ''}</p>
             </div>
+            <button
+              onClick={() => {
+                setMenuOpen(false);
+                onOpenWallet?.();
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-400/15 border border-amber-400/40 hover:bg-amber-400/25 transition-colors flex-shrink-0"
+              title="Wallet balance"
+            >
+              <Coins className="w-4 h-4 text-amber-500" />
+              <span className="text-sm font-semibold text-navy">{walletLoading ? '…' : formatPHP(walletBalance)}</span>
+            </button>
             <div className="relative flex-shrink-0" ref={menuRef}>
               <button
                 onClick={() => setMenuOpen((open) => !open)}
@@ -234,7 +265,20 @@ function UserDashboard({ googleUser, onLogout, onStartChat, onOpenSettings, onOp
                 <Settings className="w-5 h-5" />
               </button>
               {menuOpen && (
-                <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-navy/10 overflow-hidden z-50">
+                <div className="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-navy/10 overflow-hidden z-50">
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false);
+                      onOpenWallet?.();
+                    }}
+                    className="w-full flex items-center justify-between gap-2 px-4 py-3 bg-gradient-to-r from-amber-50 to-yellow-50 border-b border-navy/10 hover:from-amber-100 hover:to-yellow-100 transition-colors text-left"
+                  >
+                    <span className="flex items-center gap-2">
+                      <Coins className="w-5 h-5 text-amber-500" />
+                      <span className="font-bold text-navy">{walletLoading ? '…' : formatPHP(walletBalance)}</span>
+                    </span>
+                    <span className="text-[10px] uppercase tracking-wide text-navy/40 font-semibold">Wallet</span>
+                  </button>
                   <button
                     onClick={() => {
                       setMenuOpen(false);

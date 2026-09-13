@@ -6,9 +6,10 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { RedisModule } from '../redis/redis.module';
 import { SessionModule } from '../session/session.module';
 import { ConversationsModule } from '../conversations/conversations.module';
+import { WalletModule } from '../wallet/wallet.module';
 
 @Module({
-  imports: [PrismaModule, RedisModule, SessionModule, ConversationsModule],
+  imports: [PrismaModule, RedisModule, SessionModule, ConversationsModule, WalletModule],
   controllers: [ChatroomController],
   providers: [ChatroomService, ChatGateway],
   exports: [ChatroomService, ChatGateway],

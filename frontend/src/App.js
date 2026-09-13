@@ -116,7 +116,10 @@ function App() {
       ) : currentPage === 'wallet' && googleUser ? (
         <WalletPage
           googleUser={googleUser}
-          onBack={() => setCurrentPage('landing')}
+          onBack={() => {
+            setProfileTick((t) => t + 1);
+            setCurrentPage('landing');
+          }}
         />
       ) : currentPage === 'landing' && googleUser ? (
         <UserDashboard 

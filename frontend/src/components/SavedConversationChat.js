@@ -30,11 +30,14 @@ function SavedConversationChat({ conversation, googleUser, userProfile, onClose 
   const [messageReactions, setMessageReactions] = useState({});
   const [joinError, setJoinError] = useState('');
   const [attempt, setAttempt] = useState(0);
+  const [walletBalance, setWalletBalance] = useState(null);
   const socketRef = useRef(null);
   const sessionRef = useRef(null);
   const liveJoinedRef = useRef(false);
   const partnerRef = useRef(partner);
   partnerRef.current = partner;
+
+  const canGift = !!googleUser?.id && !!conversation.partnerUserId && !!conversation.userId;
 
   useEffect(() => {
     let cancelled = false;
@@ -213,6 +216,27 @@ function SavedConversationChat({ conversation, googleUser, userProfile, onClose 
     };
   }, [conversation.id, attempt]);
 
+  useEffect(() => {
+    if (canGift) {
+      axios.get(`${API_URL}/wallet?userId=${googleUser.id}`).then(res=>setWalletBalance(res.data.balance)).catch(()=>{});
+    } else {
+      setWalletBalance(null);
+    }
+  }, [canGift, googleUser?.id]);
+
+  const handleSendGift = async (giftKey) => {
+    if (!socketRef.current) return { error: 'Not connected' };
+    const idempotencyKey = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+    try {
+      const res = await socketRef.current.emitWithAck('sendGift', { conversationId: conversation.id, chatroomId: chatroomId || undefined, giftKey, idempotencyKey });
+      if (res?.error) return { error: res.error };
+      if (typeof res.balance === 'number') setWalletBalance(res.balance);
+      return res;
+    } catch (e) {
+      return { error: e?.message || 'Failed to send gift' };
+    }
+  };
+
   const handleSendMessage = async ({ content, replyTo }) => {
     if (!content.trim() || !chatroomId || !socketRef.current) return;
     socketRef.current.emit('sendMessage', {
@@ -331,6 +355,9 @@ function SavedConversationChat({ conversation, googleUser, userProfile, onClose 
           onReact={handleHeartReaction}
           onSendMessage={handleSendMessage}
           onSendImage={handleSendImage}
+          canGift={canGift}
+          walletBalance={walletBalance}
+          onSendGift={handleSendGift}
           onTypingStart={handleTypingStart}
           onTypingStop={handleTypingStop}
           partnerOfflineText="Waiting for your partner to join — anything you send is saved for them."

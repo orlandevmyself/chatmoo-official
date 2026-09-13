@@ -5,6 +5,11 @@ import { WalletService } from './wallet.service';
 export class WalletController {
   constructor(private walletService: WalletService) {}
 
+  @Get('gifts')
+  async getGifts() {
+    return this.walletService.getGiftsCatalog();
+  }
+
   @Get()
   async getBalance(@Query('userId') userId: string) {
     console.log('[WalletController] Getting balance for user:', userId);
@@ -26,6 +31,19 @@ export class WalletController {
   @Get('transactions/:txId')
   async getTransaction(@Param('txId') txId: string, @Query('userId') userId: string) {
     return this.walletService.getTransaction(userId, txId);
+  }
+
+  @Post('gift')
+  async sendGift(@Body() body: {
+    senderId?: string;
+    userId?: string;
+    recipientId?: string;
+    giftKey: string;
+    idempotencyKey?: string;
+  }) {
+    const senderId = body?.senderId || body?.userId;
+    console.log('[WalletController] Gift request from:', senderId, 'to', body?.recipientId, 'gift', body?.giftKey);
+    return this.walletService.sendGift(senderId, body?.recipientId, body?.giftKey, body?.idempotencyKey);
   }
 
   @Post('deposit')

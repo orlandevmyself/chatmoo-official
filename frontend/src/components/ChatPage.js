@@ -25,6 +25,7 @@ function ChatPage({ session, onBackToLanding }) {
   const [showSaveOfferDialog, setShowSaveOfferDialog] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [hasSaved, setHasSaved] = useState(false);
+  const [walletBalance, setWalletBalance] = useState(null);
   const socketRef = useRef(null);
   const startMatchingRef = useRef(null);
   const matchingTimeoutRef = useRef(null);
@@ -453,6 +454,29 @@ function ChatPage({ session, onBackToLanding }) {
     }
   };
 
+  const canGift = !!session.userId && !session.isGuest && !!matchedUser?.isAuthenticated;
+
+  useEffect(() => {
+    if (canGift && matchedUser) {
+      axios.get(`${API_URL}/wallet?userId=${session.userId}`).then(res=>setWalletBalance(res.data.balance)).catch(()=>{});
+    } else {
+      setWalletBalance(null);
+    }
+  }, [matchedUser?.isAuthenticated, matchedUser?.id, session.userId]);
+
+  const handleSendGift = async (giftKey) => {
+    if (!socketRef.current || !chatroomId) return { error: 'Not connected' };
+    const idempotencyKey = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+    try {
+      const res = await socketRef.current.emitWithAck('sendGift', { chatroomId, giftKey, idempotencyKey });
+      if (res?.error) return { error: res.error };
+      if (typeof res.balance === 'number') setWalletBalance(res.balance);
+      return res;
+    } catch (e) {
+      return { error: e?.message || 'Failed to send gift' };
+    }
+  };
+
   const handleSkip = async () => {
     try {
       if (matchingTimeoutRef.current) {
@@ -851,6 +875,9 @@ function ChatPage({ session, onBackToLanding }) {
       onReact={handleHeartReaction}
       onSendMessage={handleSendMessage}
       onSendImage={handleSendImage}
+      canGift={canGift}
+      walletBalance={walletBalance}
+      onSendGift={handleSendGift}
       onTypingStart={handleTypingStart}
       onTypingStop={handleTypingStop}
       />

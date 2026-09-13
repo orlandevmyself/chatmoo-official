@@ -14,6 +14,7 @@ import { RedisService } from '../redis/redis.service';
 import { SaveOfferService } from '../conversations/save-offer.service';
 import { ConversationsService } from '../conversations/conversations.service';
 import { ReconnectionService } from '../conversations/reconnection.service';
+import { WalletService } from '../wallet/wallet.service';
 import { isGuestUser } from '../auth/auth.constants';
 
 @WebSocketGateway({
@@ -40,6 +41,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private saveOfferService: SaveOfferService,
     private conversationsService: ConversationsService,
     private reconnectionService: ReconnectionService,
+    private walletService: WalletService,
   ) {}
 
   // Helper method to get socket ID by session ID
@@ -401,6 +403,246 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
     return { success: true, message };
+  }
+
+  @SubscribeMessage('sendGift')
+  async handleSendGift(
+    client: Socket,
+    payload: { chatroomId?: string; conversationId?: string; giftKey: string; idempotencyKey?: string },
+  ) {
+    const sessionId = this.userSessions.get(client.id);
+    console.log('[WS] sendGift - Socket:', client.id, 'Session:', sessionId, 'Gift:', payload?.giftKey);
+
+    if (!sessionId) {
+      return { error: 'No session found' };
+    }
+
+    try {
+      const currentSession: any = await this.sessionService.getSession(sessionId);
+      if (!currentSession) {
+        return { error: 'Session not found' };
+      }
+
+      const isCurrentAuth = !!currentSession.userId && !isGuestUser(currentSession.user);
+      if (!isCurrentAuth) {
+        return { error: 'Gifts only available for authenticated users' };
+      }
+
+      const senderUserId = currentSession.userId as string;
+      let recipientUserId: string | undefined;
+      let chatroomId = payload.chatroomId || null;
+      let conversationId = payload.conversationId || null;
+
+      // Determine recipient and chatroom from either saved conversation or live chatroom
+      if (conversationId) {
+        const conversation = await (this.prisma as any).savedConversation.findUnique({
+          where: { id: conversationId },
+        });
+        if (!conversation) {
+          return { error: 'Conversation not found' };
+        }
+        const isParticipant =
+          conversation.userId === senderUserId || conversation.partnerUserId === senderUserId;
+        if (!isParticipant) {
+          return { error: 'You are not part of this conversation' };
+        }
+        recipientUserId =
+          conversation.userId === senderUserId ? conversation.partnerUserId : conversation.userId;
+        // Resolve live chatroom for this saved conversation
+        if (!chatroomId) {
+          chatroomId = await this.redis.get(`convchat:${conversationId}`);
+        }
+      } else if (chatroomId) {
+        const chatroom = await this.chatroomService.getChatroom(chatroomId);
+        if (!chatroom) {
+          return { error: 'Chatroom not found' };
+        }
+        const partnerMember = chatroom.members.find(
+          (m: any) => m.sessionId !== sessionId && m.leftAt === null,
+        );
+        // Fallback: also check members even if leftAt not null (for history gift?)
+        const targetMember =
+          partnerMember ||
+          chatroom.members.find((m: any) => m.sessionId !== sessionId);
+        if (!targetMember) {
+          return { error: 'No partner found' };
+        }
+        const partnerSession: any = await this.sessionService.getSession(targetMember.sessionId);
+        if (!partnerSession) {
+          return { error: 'Partner session not found' };
+        }
+        const isPartnerAuth = !!partnerSession.userId && !isGuestUser(partnerSession.user);
+        if (!isPartnerAuth) {
+          return { error: 'Gifts only available between authenticated users' };
+        }
+        recipientUserId = partnerSession.userId;
+      } else {
+        return { error: 'chatroomId or conversationId is required' };
+      }
+
+      if (!recipientUserId) {
+        return { error: 'Recipient is not an authenticated user (guests cannot receive gifts)' };
+      }
+
+      // Also verify recipient is not a guest user
+      const recipientUser = await (this.prisma as any).user.findUnique({
+        where: { id: recipientUserId },
+      });
+      if (!recipientUser || isGuestUser(recipientUser)) {
+        return { error: 'Gifts only available between authenticated users' };
+      }
+
+      // Perform wallet transfer
+      const giftResult = await this.walletService.sendGift(
+        senderUserId,
+        recipientUserId,
+        payload.giftKey,
+        payload.idempotencyKey,
+      );
+
+      const gift = giftResult.gift;
+
+      // Create gift message in live chatroom if we have one
+      let giftMessage: any = null;
+      if (chatroomId) {
+        const giftContent = JSON.stringify({
+          giftKey: gift.key,
+          label: gift.label,
+          coins: gift.coins,
+          amountMinor: gift.amountMinor,
+          emoji: gift.emoji,
+        });
+        const roomName = `chatroom:${chatroomId}`;
+        if (!client.rooms.has(roomName)) {
+          client.join(roomName);
+        }
+        giftMessage = await this.chatroomService.addMessage({
+          chatroomId,
+          senderId: sessionId,
+          content: giftContent,
+          type: 'gift',
+        });
+        const senderSession = currentSession;
+        const messageWithMeta = {
+          ...giftMessage,
+          senderUsername: senderSession?.username || 'Anonymous',
+          giftMeta: {
+            key: gift.key,
+            label: gift.label,
+            coins: gift.coins,
+            amountMinor: gift.amountMinor,
+            emoji: gift.emoji,
+            color: gift.color,
+          },
+        };
+        this.server.to(roomName).except(client.id).emit('newMessage', messageWithMeta);
+        client.emit('newMessage', messageWithMeta);
+
+        // Persist to saved conversation if in continued chat
+        if (conversationId) {
+          try {
+            const senderUsername = senderSession?.username || 'Anonymous';
+            await this.conversationsService.appendMessages(
+              conversationId,
+              { sessionId, userId: senderUserId },
+              [
+                {
+                  senderId: sessionId,
+                  senderUsername,
+                  content: giftContent,
+                  type: 'gift',
+                },
+              ],
+            );
+            const savedIds = (giftMessage as any).id ? [giftMessage.id] : [];
+            // Map live->saved for reply handling if needed
+            if (giftMessage && savedIds.length) {
+              // Not critical for gift
+            }
+          } catch (persistError: any) {
+            console.error('[WS] Failed to persist gift message:', persistError?.message);
+          }
+        }
+      } else {
+        // For saved conversations without live room yet, still persist
+        if (conversationId) {
+          const senderUsername = currentSession?.username || 'Anonymous';
+          const giftContent = JSON.stringify({
+            giftKey: gift.key,
+            label: gift.label,
+            coins: gift.coins,
+            amountMinor: gift.amountMinor,
+            emoji: gift.emoji,
+          });
+          await this.conversationsService.appendMessages(
+            conversationId,
+            { sessionId, userId: senderUserId },
+            [
+              {
+                senderId: sessionId,
+                senderUsername,
+                content: giftContent,
+                type: 'gift',
+              },
+            ],
+          );
+          // Fabricate a message for the response
+          giftMessage = {
+            id: `gift-${Date.now()}`,
+            chatroomId: null,
+            conversationId,
+            senderId: sessionId,
+            senderUsername: currentSession.username,
+            content: giftContent,
+            type: 'gift',
+            createdAt: new Date().toISOString(),
+            giftMeta: {
+              key: gift.key,
+              label: gift.label,
+              coins: gift.coins,
+              amountMinor: gift.amountMinor,
+              emoji: gift.emoji,
+              color: gift.color,
+            },
+          };
+          // Notify partner via userSockets if online
+          const con = await (this.prisma as any).savedConversation.findUnique({
+            where: { id: conversationId },
+          });
+          const partnerUserId = con?.userId === senderUserId ? con?.partnerUserId : con?.userId;
+          if (partnerUserId) {
+            const sockets = this.userSockets.get(partnerUserId);
+            if (sockets) {
+              for (const sid of sockets) {
+                this.server.to(sid).emit('newMessage', giftMessage);
+              }
+            }
+          }
+          // Also emit to sender if not already in room
+          client.emit('newMessage', giftMessage);
+        }
+      }
+
+      // Return wallet balance for sender
+      const wallet = await this.walletService.getBalance(senderUserId);
+
+      return {
+        success: true,
+        gift: {
+          key: gift.key,
+          label: gift.label,
+          coins: gift.coins,
+          amountMinor: gift.amountMinor,
+          emoji: gift.emoji,
+          color: gift.color,
+        },
+        message: giftMessage,
+        balance: wallet.balance,
+      };
+    } catch (error: any) {
+      console.error('[WS] Error sending gift:', error);
+      return { error: error.message || 'Failed to send gift' };
+    }
   }
 
   @SubscribeMessage('typingStart')

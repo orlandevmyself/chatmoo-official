@@ -4,10 +4,12 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
-import { Send, X, User, GraduationCap, Venus, Mars, Transgender, MoreVertical, Forward, Image as ImageIcon, Heart, MessageCircle, Bookmark, Clock, Check, ArrowLeft } from 'lucide-react';
+import { Send, X, User, GraduationCap, Venus, Mars, Transgender, MoreVertical, Forward, Image as ImageIcon, Heart, MessageCircle, Bookmark, Clock, Check, ArrowLeft, Gift } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { getAvatarUrl, getDisplayName, getFlagUrl } from '../utils/conversationHelpers';
 import { getAppSettings, CHAT_THEMES, FONT_SIZE_CLASSES } from '../utils/appSettings';
+import GiftPicker from './GiftPicker';
+import { getGift } from '../utils/giftCatalog';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3000';
 
@@ -46,6 +48,9 @@ function ChatWindow({
   onReact,
   onSendMessage,
   onSendImage,
+  onSendGift,
+  canGift = false,
+  walletBalance = null,
   onTypingStart,
   onTypingStop,
   emptyTitle = 'No messages yet',
@@ -56,6 +61,9 @@ function ChatWindow({
   const [uploadingImage, setUploadingImage] = useState(false);
   const [replyingTo, setReplyingTo] = useState(null);
   const [showMessageActions, setShowMessageActions] = useState(null);
+  const [showGiftPicker, setShowGiftPicker] = useState(false);
+  const [sendingGiftKey, setSendingGiftKey] = useState(null);
+  const [giftError, setGiftError] = useState('');
   const messagesEndRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -196,6 +204,102 @@ function ChatWindow({
   const handleHeartReaction = (messageId) => {
     onReact?.(messageId);
     setShowMessageActions(null);
+  };
+
+  const handleGiftSelect = async (giftKey) => {
+    if (!onSendGift || sendingGiftKey) return;
+    setSendingGiftKey(giftKey);
+    setGiftError('');
+    try {
+      const res = await onSendGift(giftKey);
+      if (res?.error) {
+        setGiftError(res.error);
+      } else {
+        setShowGiftPicker(false);
+      }
+    } catch (e) {
+      setGiftError(e?.message || 'Failed to send gift');
+    } finally {
+      setSendingGiftKey(null);
+    }
+  };
+
+  const parseGift = (message) => {
+    if (message.type !== 'gift') return null;
+    // New format: content is JSON with giftKey, label, coins, emoji
+    // Fallback: giftMeta attached by server
+    if (message.giftMeta) return message.giftMeta;
+    try {
+      const data = JSON.parse(message.content);
+      if (data.giftKey || data.label) {
+        const catalogGift = getGift(data.giftKey);
+        return {
+          key: data.giftKey,
+          label: data.label || catalogGift?.label || 'Gift',
+          coins: data.coins ?? catalogGift?.coins ?? 0,
+          emoji: data.emoji || catalogGift?.emoji || '🎁',
+          color: data.color || catalogGift?.color || '#FF6B4A',
+        };
+      }
+    } catch {
+      // content is not JSON, treat as plain
+    }
+    return { label: 'Gift', emoji: '🎁', coins: 0, color: '#FF6B4A' };
+  };
+
+  const hexToRgba = (hex, alpha) => {
+    try {
+      const h = hex.replace('#', '');
+      const r = parseInt(h.slice(0, 2), 16);
+      const g = parseInt(h.slice(2, 4), 16);
+      const b = parseInt(h.slice(4, 6), 16);
+      return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    } catch {
+      return `rgba(255, 107, 74, ${alpha})`;
+    }
+  };
+
+  const giftTier = (coins) => {
+    if (coins >= 1000) return 'epic';
+    if (coins >= 100) return 'big';
+    if (coins >= 10) return 'medium';
+    return 'small';
+  };
+
+  const giftTierAnim = (tier) => cn(
+    "gift-pop",
+    (tier === 'medium' || tier === 'big' || tier === 'epic') && "gift-glow"
+  );
+
+  const giftInnerAnim = (tier) => {
+    if (tier === 'epic') return 'gift-epic-bounce';
+    if (tier === 'big') return 'gift-big-bounce';
+    return 'gift-float';
+  };
+
+  const giftSparkles = (tier) => {
+    const count = tier === 'medium' ? 3 : tier === 'big' ? 5 : tier === 'epic' ? 7 : 0;
+    return Array.from({ length: count }, (_, i) => ({
+      left: `${18 + (i * 61) % 64}%`,
+      top: `${8 + (i * 37) % 80}%`,
+      delay: `${(i * 0.29) % 1.5}s`,
+      size: tier === 'epic' ? 'text-xl' : tier === 'big' ? 'text-lg' : 'text-base',
+    }));
+  };
+
+  const giftConfetti = (tier, color) => {
+    const count = tier === 'epic' ? 14 : tier === 'big' ? 10 : 0;
+    const palette = ['#FF6B4A', color, '#FFD166', '#4ECDC4', '#FF8FAB', '#A78BFA', '#F5F5F5'];
+    return Array.from({ length: count }, (_, i) => ({
+      cx: `${Math.round((Math.sin((i * 137.5) % 360) * 0.5 + 0.5) * 120 - 60) * -1}px`,
+      cy: `${Math.round((Math.cos((i * 97.5) % 360) * 0.5 + 0.5) * 150 - 75) * -1}px`,
+      bg: palette[i % palette.length],
+      delay: `${(i * 0.17) % 2}s`,
+      cd: `${2.2 + (i % 5) * 0.18}s`,
+      w: `${6 + (i % 3) * 3}px`,
+      h: `${10 + (i % 4) * 4}px`,
+      rounded: i % 3 === 0,
+    }));
   };
 
   const getMessageGrouping = (msgs, index) => {
@@ -355,6 +459,17 @@ function ChatWindow({
                     )}
                   </Button>
                 )}
+                {canGift && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setShowGiftPicker(true)}
+                    className="bg-white/20 text-white hover:bg-white/30"
+                    title="Send gift"
+                  >
+                    <Gift className="w-5 h-5" />
+                  </Button>
+                )}
                 {showMatchActions && (
                   <Button
                     variant="ghost"
@@ -400,6 +515,83 @@ function ChatWindow({
                 const ownMessage = isOwnMessage(message);
                 const reacted = messageReactions[message.id]?.includes(session.id);
                 const reactionCount = messageReactions[message.id]?.length || 0;
+                const gift = message.type === 'gift' ? parseGift(message) : null;
+
+                if (gift) {
+                  const tier = giftTier(gift.coins);
+                  const glow = hexToRgba(gift.color, tier === 'epic' ? 0.9 : tier === 'big' ? 0.8 : 0.7);
+                  const ring = hexToRgba(gift.color, 0.85);
+                  const ray = hexToRgba(gift.color, 0.35);
+                  const sizeClass = `gift-tier-${tier}`;
+                  const sparkles = giftSparkles(tier);
+                  const confetti = tier === 'epic' ? giftConfetti(tier, gift.color) : [];
+                  return (
+                    <div key={message.id} className="flex justify-center py-4 animate-gift-row">
+                      <div className="flex flex-col items-center gap-1 select-none">
+                        <p className="text-xs md:text-sm font-semibold text-navy/70 tracking-wide flex items-center gap-2">
+                          {ownMessage ? (
+                            <>
+                              <span className="text-navy/90">You sent</span>
+                              <span className="font-bold" style={{ color: gift.color }}>{gift.label}</span>
+                            </>
+                          ) : (
+                            <>
+                              <span className="text-navy/90">{getDisplayName(partner)}</span>
+                              <span>sent</span>
+                              <span className="font-bold" style={{ color: gift.color }}>{gift.label}</span>
+                            </>
+                          )}
+                          <span className="inline-flex items-center gap-1 bg-amber-400 text-white text-[10px] font-extrabold px-2 py-0.5 rounded-full shadow-sm">
+                            {gift.coins} coins
+                          </span>
+                        </p>
+                        <div
+                          className={cn(
+                            "relative flex items-center justify-center",
+                            tier === 'epic' ? "w-44 h-44" : tier === 'big' ? "w-36 h-36" : tier === 'medium' ? "w-28 h-28" : "w-24 h-24"
+                          )}
+                          style={{ '--gift-glow': glow, '--gift-ring': ring, '--gift-ray-color': ray }}
+                        >
+                          {tier === 'epic' && <div className="gift-rays" />}
+                          {(tier === 'big' || tier === 'epic') && (
+                            <>
+                              <div className="gift-ring" />
+                              <div className="gift-ring" style={{ animationDelay: '0.9s' }} />
+                            </>
+                          )}
+                          {sparkles.map((s, i) => (
+                            <span
+                              key={i}
+                              className={cn("gift-sparkle", s.size)}
+                              style={{ left: s.left, top: s.top, animationDelay: s.delay }}
+                            >
+                              ✦
+                            </span>
+                          ))}
+                          {confetti.map((c, i) => (
+                            <span
+                              key={i}
+                              className="gift-confetti"
+                              style={{
+                                width: c.w,
+                                height: c.h,
+                                backgroundColor: c.bg,
+                                borderRadius: c.rounded ? '9999px' : '2px',
+                                '--cx': c.cx,
+                                '--cy': c.cy,
+                                '--delay': c.delay,
+                                '--cd': c.cd,
+                              }}
+                            />
+                          ))}
+                          <span className={cn("gift-emoji", sizeClass, giftTierAnim(tier), "drop-shadow-[0_8px_12px_rgba(0,0,0,0.25)]")}>
+                            <span className={cn("inline-block", giftInnerAnim(tier))}>{gift.emoji}</span>
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
 
                 return (
                   <div
@@ -567,6 +759,12 @@ function ChatWindow({
       {/* Input */}
       <div className="bg-white border-t border-navy/10 shadow-lg p-4">
         <div className="max-w-4xl mx-auto">
+          {giftError && (
+            <div className="bg-red-50 border border-red-200 rounded-xl p-2 mb-3 text-sm text-red-600 flex items-center justify-between">
+              <span>{giftError}</span>
+              <button onClick={() => setGiftError('')} className="p-1"><X className="w-4 h-4" /></button>
+            </div>
+          )}
           {showPartnerBanner && (
             <div className="bg-navy/10 border border-navy/20 rounded-lg p-3 mb-3 text-center">
               <p className="text-navy font-medium text-sm">{partnerOfflineText}</p>
@@ -611,6 +809,18 @@ function ChatWindow({
             >
               <ImageIcon className="w-5 h-5" />
             </Button>
+            {canGift && (
+              <Button
+                type="button"
+                onClick={() => setShowGiftPicker(true)}
+                disabled={composerDisabled}
+                variant="outline"
+                className="rounded-xl h-12 px-3 md:px-4 border-navy/20 text-navy hover:bg-navy/5 flex-shrink-0"
+                title="Send gift"
+              >
+                <Gift className="w-5 h-5" />
+              </Button>
+            )}
             <Input
               ref={inputRef}
               value={newMessage}
@@ -633,6 +843,21 @@ function ChatWindow({
           </form>
         </div>
       </div>
+
+      {/* Gift Picker */}
+      {showGiftPicker && (
+        <GiftPicker
+          balanceMinor={walletBalance ?? 0}
+          sendingKey={sendingGiftKey}
+          onSelect={handleGiftSelect}
+          onClose={() => { setShowGiftPicker(false); setGiftError(''); }}
+        />
+      )}
+      {giftError && showGiftPicker && (
+        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 bg-red-500 text-white text-sm px-4 py-2 rounded-full shadow-lg z-50">
+          {giftError}
+        </div>
+      )}
 
       {/* Save Offer Dialog */}
       {showSaveOfferDialog && pendingSaveOffer && (
