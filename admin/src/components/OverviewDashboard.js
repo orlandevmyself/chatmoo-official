@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { adminApi } from '../lib/api';
-import { Users, MessageCircle, CreditCard, Gift, AlertCircle } from 'lucide-react';
+import { Users, MessageCircle, CreditCard, Gift, AlertCircle, Trash2, TrendingUp, PiggyBank } from 'lucide-react';
 
 function StatCard({ label, value, icon: Icon, subtext }) {
   return (
@@ -19,22 +19,49 @@ function StatCard({ label, value, icon: Icon, subtext }) {
 
 function OverviewDashboard({ adminUserId }) {
   const [overview, setOverview] = useState(null);
+  const [walletStats, setWalletStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [cleanupLoading, setCleanupLoading] = useState(false);
+  const [cleanupMessage, setCleanupMessage] = useState('');
+
+  const fetchOverview = async () => {
+    try {
+      setLoading(true);
+      const [overviewData, walletData] = await Promise.all([
+        adminApi.getOverview(adminUserId),
+        adminApi.getWalletStats(adminUserId),
+      ]);
+      setOverview(overviewData);
+      setWalletStats(walletData);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCleanup = async () => {
+    if (!window.confirm('This will delete inactive sessions (>24h) and empty ended chatrooms. Continue?')) {
+      return;
+    }
+    try {
+      setCleanupLoading(true);
+      const result = await adminApi.cleanup(adminUserId);
+      setCleanupMessage(
+        `Cleanup complete! Deleted ${result.deletedDemoUsers} demo users, ${result.deletedSessions} sessions, ${result.deletedOrphanedSessions} orphaned sessions, and ${result.deletedChatrooms} empty chatrooms.`
+      );
+      setTimeout(() => setCleanupMessage(''), 5000);
+      // Refresh overview
+      fetchOverview();
+    } catch (err) {
+      alert(`Cleanup failed: ${err.message}`);
+    } finally {
+      setCleanupLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchOverview = async () => {
-      try {
-        setLoading(true);
-        const data = await adminApi.getOverview(adminUserId);
-        setOverview(data);
-      } catch (err) {
-        setError(err.message);
-      } finally {
-        setLoading(false);
-      }
-    };
-
     fetchOverview();
   }, [adminUserId]);
 
@@ -66,12 +93,28 @@ function OverviewDashboard({ adminUserId }) {
 
   return (
     <div className="p-8 bg-cream-50 min-h-screen">
-      <div className="mb-8">
-        <h1 className="text-4xl font-bold text-navy">Dashboard Overview</h1>
-        <p className="text-navy/60 mt-2">
-          Generated {new Date(overview.generatedAt).toLocaleString()}
-        </p>
+      <div className="mb-8 flex items-start justify-between">
+        <div>
+          <h1 className="text-4xl font-bold text-navy">Dashboard Overview</h1>
+          <p className="text-navy/60 mt-2">
+            Generated {new Date(overview.generatedAt).toLocaleString()}
+          </p>
+        </div>
+        <button
+          onClick={handleCleanup}
+          disabled={cleanupLoading}
+          className="flex items-center gap-2 px-4 py-2 bg-coral text-white rounded-lg hover:bg-coral/90 transition disabled:opacity-50"
+        >
+          <Trash2 size={18} />
+          {cleanupLoading ? 'Cleaning...' : 'Cleanup Data'}
+        </button>
       </div>
+
+      {cleanupMessage && (
+        <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm">
+          {cleanupMessage}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
         <StatCard
@@ -93,12 +136,36 @@ function OverviewDashboard({ adminUserId }) {
           subtext={`${chatrooms.active} active`}
         />
         <StatCard
-          label="Total Balance"
-          value={`₱${(wallet.totalBalance / 100).toFixed(2)}`}
-          icon={CreditCard}
-          subtext={`${wallet.pendingTransactions} pending`}
+          label="Admin Income"
+          value={walletStats ? `₱${(walletStats.adminWallet.balance / 100).toFixed(2)}` : '₱0.00'}
+          icon={PiggyBank}
+          subtext={walletStats ? `Estimated: ₱${(walletStats.adminWallet.estimatedIncome / 100).toFixed(2)}` : 'Loading...'}
         />
       </div>
+
+      {/* Wallet Stats Row */}
+      {walletStats && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+          <StatCard
+            label="Total Commission"
+            value={`₱${(walletStats.commissionStats.totalCommission / 100).toFixed(2)}`}
+            icon={TrendingUp}
+            subtext={`${walletStats.commissionStats.completedCommission > 0 ? '₱' + (walletStats.commissionStats.completedCommission / 100).toFixed(2) : 'No'} completed`}
+          />
+          <StatCard
+            label="User Total Balance"
+            value={`₱${(walletStats.userStats.totalBalance / 100).toFixed(2)}`}
+            icon={Users}
+            subtext={`${walletStats.withdrawalStats.completedWithdrawals} withdrawals`}
+          />
+          <StatCard
+            label="Coins in Circulation"
+            value={`₱${(walletStats.totalCoinsInCirculation / 100).toFixed(2)}`}
+            icon={CreditCard}
+            subtext="Admin + Users total"
+          />
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
         <div className="bg-white rounded-lg shadow p-6">

@@ -6,6 +6,8 @@ import UsersManagement from './components/UsersManagement';
 import TransactionsReport from './components/TransactionsReport';
 import ConfigManagement from './components/ConfigManagement';
 import GiftCatalog from './components/GiftCatalog';
+import Operations from './components/Operations';
+import WalletDashboard from './components/WalletDashboard';
 import LoginPage from './components/LoginPage';
 import { AdminAuthContext } from './context/AdminAuthContext';
 import './AdminApp.css';
@@ -74,6 +76,8 @@ function AdminApp() {
               <Route path="/transactions" element={<TransactionsReport adminUserId={adminUser.id} />} />
               <Route path="/config" element={<ConfigManagement adminUserId={adminUser.id} />} />
               <Route path="/gifts" element={<GiftCatalog adminUserId={adminUser.id} />} />
+              <Route path="/operations" element={<Operations adminUserId={adminUser.id} />} />
+              <Route path="/wallet" element={<WalletDashboard adminUserId={adminUser.id} />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </main>

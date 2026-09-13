@@ -238,6 +238,7 @@ function LandingPage({ onStartChat, googleUser, guestSession, onLogout }) {
         const userResponse = await axios.post(`${API_URL}/users`, {
           email: `${formData.username}${timestamp}@chatmoo.com`,
           name: formData.username,
+          role: 'guest',
         });
         userId = userResponse.data.id;
       }

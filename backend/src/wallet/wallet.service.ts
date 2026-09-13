@@ -251,6 +251,7 @@ export class WalletService {
         if (reserved.count === 0) {
           throw new BadRequestException('Insufficient balance');
         }
+        const adminCommission = Math.ceil((data.amountMinor * 20) / 100); // 20% commission on withdrawal
         return t.walletTransaction.create({
           data: {
             walletId: wallet.id,
@@ -258,6 +259,7 @@ export class WalletService {
             type: 'withdraw',
             amount: data.amountMinor,
             fee: quote.feeMinor,
+            adminCommission,
             status: 'pending',
             provider: provider.name,
             method: data.method,
@@ -290,11 +292,28 @@ export class WalletService {
       if (!tx || tx.status !== 'pending') return;
       const provider = getPaymentProvider();
       const { providerRef } = await provider.initiateWithdraw(txId, tx.userId, tx.amount, tx.method, tx.destination);
-      const moved = await (this.prisma as any).walletTransaction.updateMany({
-        where: { id: txId, status: 'pending' },
-        data: { status: 'completed', providerRef },
+      const moved = await (this.prisma as any).$transaction(async (t: any) => {
+        const claimed = await t.walletTransaction.updateMany({
+          where: { id: txId, status: 'pending' },
+          data: { status: 'completed', providerRef },
+        });
+        if (claimed.count === 0) return 0;
+        // Credit admin wallet with commission from completed withdrawal
+        if (tx.adminCommission && tx.adminCommission > 0) {
+          let adminWallet = await t.adminWallet.findFirst();
+          if (!adminWallet) {
+            adminWallet = await t.adminWallet.create({
+              data: { balance: 0, currency: 'PHP', status: 'active' },
+            });
+          }
+          await t.adminWallet.update({
+            where: { id: adminWallet.id },
+            data: { balance: { increment: tx.adminCommission } },
+          });
+        }
+        return 1;
       });
-      console.log('[WalletService] Withdraw settled:', txId, 'completed:', moved.count === 1);
+      console.log('[WalletService] Withdraw settled:', txId, 'completed:', moved === 1, 'commission:', tx.adminCommission);
     } catch (e: any) {
       console.error('[WalletService] Withdraw settlement failed, refunding:', txId, e?.message);
       // Refund the reservation on provider failure.

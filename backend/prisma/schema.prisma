@@ -20,7 +20,7 @@ model User {
   avatar      String   @default("adventurer") // DiceBear avatar style
   avatarSeed  String?  // Seed for avatar generation
   profileComplete Boolean @default(false) // Whether user has completed profile setup
-  role        String   @default("user") // 'user' | 'admin'
+  role        String   @default("user") // 'admin' | 'user' | 'guest'
   passwordHash String? // Hashed password for admin accounts
   banned      Boolean  @default(false) // Banned users cannot match/chat
   createdAt   DateTime @default(now())
@@ -211,6 +211,7 @@ model WalletTransaction {
   type           String   // 'deposit' | 'withdraw'
   amount         Int      // minor units, > 0
   fee            Int      @default(0) // minor units
+  adminCommission Int    @default(0) // admin commission (usually 20% of fee)
   status         String   @default("pending") // 'pending' | 'completed' | 'failed' | 'cancelled'
   provider       String   @default("demo") // 'demo' | 'paymongo' | ...
   providerRef    String?  // provider-side reference (checkout/payment/payout id)
@@ -226,6 +227,16 @@ model WalletTransaction {
   @@index([type])
   @@index([status])
   @@index([createdAt])
+}
+
+// Admin wallet for tracking platform income
+model AdminWallet {
+  id        String   @id @default(uuid())
+  balance   Int      @default(0) // minor units (centavos), platform income
+  currency  String   @default("PHP")
+  status    String   @default("active") // 'active' | 'frozen'
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 // Platform-level configuration editable from the admin panel. Simple string

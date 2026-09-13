@@ -1,6 +1,7 @@
 import { Controller, Get, Patch, Post, Put, Delete, Query, Body, Param } from '@nestjs/common';
 import { AdminService } from './admin.service';
 import { AdminAuthService } from './admin-auth.service';
+import { AdminWalletService } from './admin-wallet.service';
 import { GiftService } from '../gifts/gift.service';
 import { AppConfigService } from '../config/config.service';
 
@@ -9,6 +10,7 @@ export class AdminController {
   constructor(
     private adminService: AdminService,
     private adminAuthService: AdminAuthService,
+    private adminWalletService: AdminWalletService,
     private giftService: GiftService,
     private config: AppConfigService,
   ) {}
@@ -16,6 +18,21 @@ export class AdminController {
   @Post('login')
   async login(@Body() body: { email?: string; password?: string }) {
     return this.adminAuthService.loginWithPassword(body.email || '', body.password || '');
+  }
+
+  @Post('cleanup')
+  async cleanup(@Query('userId') adminUserId: string) {
+    return this.adminService.cleanupStaleData(adminUserId);
+  }
+
+  @Post('reset-all-data')
+  async resetAllData(@Query('userId') adminUserId: string) {
+    return this.adminService.resetAllData(adminUserId);
+  }
+
+  @Post('reseed-data')
+  async reseedData(@Query('userId') adminUserId: string) {
+    return this.adminService.reseedData(adminUserId);
   }
 
   @Get('overview')
@@ -134,5 +151,26 @@ export class AdminController {
     await this.adminService.assertAdmin(adminUserId);
     await this.giftService.setEnabled(key, !!body.enabled);
     return this.giftService.listForAdmin();
+  }
+
+  // ---- Wallet & Revenue ----
+  @Get('wallet/stats')
+  async getWalletStats(@Query('userId') adminUserId: string) {
+    await this.adminService.assertAdmin(adminUserId);
+    return this.adminWalletService.getWalletStats(adminUserId);
+  }
+
+  @Post('wallet/withdraw')
+  async withdrawAdminIncome(
+    @Query('userId') adminUserId: string,
+    @Body() body: { amountMinor: number; method: string; destination: string },
+  ) {
+    await this.adminService.assertAdmin(adminUserId);
+    return this.adminWalletService.withdrawAdminIncome(
+      adminUserId,
+      body.amountMinor,
+      body.method,
+      body.destination,
+    );
   }
 }

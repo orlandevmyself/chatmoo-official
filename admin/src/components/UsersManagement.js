@@ -105,8 +105,9 @@ function UsersManagement({ adminUserId }) {
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-coral focus:border-transparent"
             >
               <option value="">All</option>
-              <option value="user">User</option>
               <option value="admin">Admin</option>
+              <option value="user">User</option>
+              <option value="guest">Guest</option>
             </select>
           </div>
 
@@ -164,8 +165,9 @@ function UsersManagement({ adminUserId }) {
                           onChange={(e) => handleRoleChange(user.id, e.target.value)}
                           className="px-2 py-1 border border-gray-300 rounded text-xs bg-white focus:ring-2 focus:ring-coral focus:border-transparent"
                         >
-                          <option value="user">User</option>
                           <option value="admin">Admin</option>
+                          <option value="user">User</option>
+                          <option value="guest">Guest</option>
                         </select>
                       </td>
                       <td className="py-4">
@@ -187,10 +189,7 @@ function UsersManagement({ adminUserId }) {
               </table>
             </div>
 
-            <div className="flex items-center justify-between mt-6">
-              <p className="text-sm text-gray-600">
-                Page {page} of {totalPages}
-              </p>
+            <div className="flex items-center justify-end mt-6">
               <div className="flex gap-2">
                 <button
                   onClick={() => setPage(Math.max(1, page - 1))}

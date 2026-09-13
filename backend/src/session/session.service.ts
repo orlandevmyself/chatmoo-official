@@ -1,12 +1,15 @@
 import { Injectable } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
+import { GuestCleanupService } from '../auth/guest-cleanup.service';
 
 @Injectable()
 export class SessionService {
   constructor(
     private prisma: PrismaService,
     private redis: RedisService,
+    private moduleRef: ModuleRef,
   ) {}
 
   async createSession(data: {
@@ -20,9 +23,31 @@ export class SessionService {
     avatar?: string;
     avatarSeed?: string;
   }) {
+    let userId = data.userId;
+
+    // If no userId provided, create a guest account
+    if (!userId) {
+      const guestEmail = `${Math.random().toString(36).substring(2, 15)}@chatmoo.com`;
+      const guestUser = await (this.prisma as any).user.create({
+        data: {
+          email: guestEmail,
+          name: data.username,
+          username: data.username,
+          role: 'guest',
+          country: data.country,
+          countryCode: data.countryCode,
+          university: data.university,
+          gender: data.gender,
+          avatar: data.avatar || 'adventurer',
+          avatarSeed: data.avatarSeed,
+        },
+      });
+      userId = guestUser.id;
+    }
+
     const session = await this.prisma.session.create({
       data: {
-        userId: data.userId,
+        userId,
         username: data.username,
         country: data.country,
         countryCode: data.countryCode,
@@ -76,6 +101,18 @@ export class SessionService {
         const redisClient = this.redis.getClient();
         await redisClient.del(`queue:${id}`);
         await redisClient.del(`searching:${id}`); // Also remove from searching
+
+        // Cleanup guest data if session belongs to a guest
+        if (session.userId) {
+          try {
+            const guestCleanup = this.moduleRef.get(GuestCleanupService, { strict: false });
+            if (guestCleanup) {
+              await guestCleanup.cleanupSessionlessGuestData(id);
+            }
+          } catch (error) {
+            console.error(`[SessionService] Error cleaning up guest data: ${(error as Error).message}`);
+          }
+        }
       }
 
       return session;

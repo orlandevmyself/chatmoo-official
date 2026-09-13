@@ -232,10 +232,7 @@ function TransactionsReport({ adminUserId }) {
               </table>
             </div>
 
-            <div className="flex items-center justify-between mt-6">
-              <p className="text-sm text-gray-600">
-                Page {page} of {totalPages}
-              </p>
+            <div className="flex items-center justify-end mt-6">
               <div className="flex gap-2">
                 <button
                   onClick={() => setPage(Math.max(1, page - 1))}

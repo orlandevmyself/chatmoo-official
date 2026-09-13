@@ -9,11 +9,11 @@ export class UserService {
     private redis: RedisService,
   ) {}
 
-  async createUser(email: string, name?: string) {
+  async createUser(email: string, name?: string, role?: string) {
     // Try to create user, if exists due to unique constraint, get existing user
     try {
       const user = await this.prisma.user.create({
-        data: { email, name },
+        data: { email, name, ...(role && { role }) },
       });
       
       // Cache the user in Redis

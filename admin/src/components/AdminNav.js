@@ -8,6 +8,7 @@ import {
   Gift,
   LogOut,
   Menu,
+  Wrench,
 } from 'lucide-react';
 
 function AdminNav({ adminUser, onLogout }) {
@@ -18,10 +19,12 @@ function AdminNav({ adminUser, onLogout }) {
 
   const navItems = [
     { path: '/', label: 'Overview', icon: BarChart3 },
+    { path: '/wallet', label: 'Wallet', icon: CreditCard },
     { path: '/users', label: 'Users', icon: Users },
     { path: '/transactions', label: 'Transactions', icon: CreditCard },
     { path: '/gifts', label: 'Gifts', icon: Gift },
     { path: '/config', label: 'Config', icon: Settings },
+    { path: '/operations', label: 'Operations', icon: Wrench },
   ];
 
   return (

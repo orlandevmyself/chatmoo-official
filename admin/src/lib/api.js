@@ -89,4 +89,22 @@ export const adminApi = {
       method: 'PATCH',
       body: JSON.stringify({ enabled }),
     }),
+
+  cleanup: (adminUserId) =>
+    adminFetch('/cleanup', adminUserId, { method: 'POST' }),
+
+  resetAllData: (adminUserId) =>
+    adminFetch('/reset-all-data', adminUserId, { method: 'POST' }),
+
+  reseedData: (adminUserId) =>
+    adminFetch('/reseed-data', adminUserId, { method: 'POST' }),
+
+  getWalletStats: (adminUserId) =>
+    adminFetch('/wallet/stats', adminUserId),
+
+  withdrawAdminIncome: (adminUserId, amountMinor, method, destination) =>
+    adminFetch('/wallet/withdraw', adminUserId, {
+      method: 'POST',
+      body: JSON.stringify({ amountMinor, method, destination }),
+    }),
 };

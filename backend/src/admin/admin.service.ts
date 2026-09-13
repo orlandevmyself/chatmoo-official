@@ -63,13 +63,21 @@ export class AdminService {
     ]);
 
     const chatroomRows = await (this.prisma as any).chatroom.findMany({
-      select: { status: true, createdAt: true },
+      select: {
+        id: true,
+        status: true,
+        createdAt: true,
+        members: { select: { id: true } },
+      },
     });
     let activeChatrooms = 0;
     let chatroomsToday = 0;
+    const uniqueChatroomIds = new Set<string>();
+
     for (const c of chatroomRows) {
-      if (c.status === 'active') activeChatrooms++;
-      if (c.createdAt >= todayStart) chatroomsToday++;
+      uniqueChatroomIds.add(c.id);
+      if (c.status === 'active' && (c as any).members?.length > 0) activeChatrooms++;
+      if (c.createdAt >= todayStart && (c as any).members?.length > 0) chatroomsToday++;
     }
 
     const messagesTotal = await (this.prisma as any).message.count();
@@ -130,7 +138,7 @@ export class AdminService {
       },
       sessions: { total: sessionRows.length, ...statusCounts },
       chatrooms: {
-        total: chatroomRows.length,
+        total: uniqueChatroomIds.size,
         active: activeChatrooms,
         createdToday: chatroomsToday,
       },
@@ -226,8 +234,8 @@ export class AdminService {
 
   async setUserRole(adminUserId: string, targetUserId: string, role: string) {
     await this.assertAdmin(adminUserId);
-    if (role !== 'user' && role !== 'admin') {
-      throw new BadRequestException('Role must be user or admin');
+    if (role !== 'user' && role !== 'admin' && role !== 'guest') {
+      throw new BadRequestException('Role must be admin, user, or guest');
     }
     if (targetUserId === adminUserId) {
       throw new BadRequestException('You cannot change your own role');
@@ -253,6 +261,131 @@ export class AdminService {
       data: { banned: !!banned },
       select: { id: true, email: true, role: true, banned: true },
     });
+  }
+
+  async cleanupStaleData(adminUserId: string) {
+    await this.assertAdmin(adminUserId);
+
+    // Clean up demo/test accounts
+    const deletedDemoUsers = await (this.prisma as any).user.deleteMany({
+      where: {
+        OR: [
+          { email: { contains: 'paginate-demo' } },
+          { name: 'Paginate Demo' },
+        ],
+      },
+    });
+
+    // Clean up inactive sessions (older than 24 hours)
+    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const deletedSessions = await (this.prisma as any).session.deleteMany({
+      where: {
+        status: 'inactive',
+        updatedAt: { lt: twentyFourHoursAgo },
+      },
+    });
+
+    // Clean up ended chatrooms without messages (dump chatrooms)
+    const allChatrooms = await (this.prisma as any).chatroom.findMany({
+      where: { status: 'ended' },
+      include: { messages: { select: { id: true } } },
+    });
+
+    let deletedChatrooms = 0;
+    for (const room of allChatrooms) {
+      // Only delete ended chatrooms with no messages (dump data)
+      if (room.messages.length === 0) {
+        await (this.prisma as any).chatroom.delete({
+          where: { id: room.id },
+        });
+        deletedChatrooms++;
+      }
+    }
+
+    // Clean up orphaned sessions
+    const orphanedSessions = await (this.prisma as any).session.deleteMany({
+      where: {
+        user: null,
+      },
+    });
+
+    return {
+      message: 'Cleanup completed successfully',
+      deletedDemoUsers: deletedDemoUsers.count,
+      deletedChatrooms,
+      deletedSessions: deletedSessions.count,
+      deletedOrphanedSessions: orphanedSessions.count,
+      timestamp: new Date(),
+    };
+  }
+
+  async resetAllData(adminUserId: string) {
+    await this.assertAdmin(adminUserId);
+
+    // Delete all conversations and saved messages
+    const deletedConversations = await (this.prisma as any).savedConversation.deleteMany({});
+
+    // Delete all chatrooms and messages
+    const deletedChatrooms = await (this.prisma as any).chatroom.deleteMany({});
+
+    // Delete all sessions
+    const deletedSessions = await (this.prisma as any).session.deleteMany({});
+
+    // Delete all users except admins
+    const deletedUsers = await (this.prisma as any).user.deleteMany({
+      where: { role: { not: 'admin' } },
+    });
+
+    return {
+      message: 'All data has been reset. Admin account remains.',
+      deletedUsers: deletedUsers.count,
+      deletedConversations: deletedConversations.count,
+      deletedSessions: deletedSessions.count,
+      timestamp: new Date(),
+    };
+  }
+
+  async reseedData(adminUserId: string) {
+    await this.assertAdmin(adminUserId);
+
+    // First reset all data except admin
+    await this.resetAllData(adminUserId);
+
+    // Create demo users
+    const demoUsers = [
+      { email: 'demo1@chatmoo.com', name: 'Demo User 1', username: 'demo1', role: 'user' },
+      { email: 'demo2@chatmoo.com', name: 'Demo User 2', username: 'demo2', role: 'user' },
+      { email: 'guest-demo@chatmoo.com', name: 'Guest Demo', username: 'guest-demo', role: 'guest' },
+    ];
+
+    let createdCount = 0;
+    for (const user of demoUsers) {
+      try {
+        await (this.prisma as any).user.create({
+          data: {
+            email: user.email,
+            name: user.name,
+            username: user.username,
+            displayName: user.name,
+            role: user.role,
+            profileComplete: user.role === 'user',
+            avatar: 'adventurer',
+            avatarSeed: user.username,
+            wallet: { create: { balance: 0, currency: 'PHP', status: 'active' } },
+            settings: { create: {} },
+          },
+        });
+        createdCount++;
+      } catch (err) {
+        console.log(`Failed to create demo user ${user.email}`);
+      }
+    }
+
+    return {
+      message: `Data has been reset and reseeded with ${createdCount} demo accounts.`,
+      demoUsersCreated: createdCount,
+      timestamp: new Date(),
+    };
   }
 
   async listTransactions(adminUserId: string, query: {
