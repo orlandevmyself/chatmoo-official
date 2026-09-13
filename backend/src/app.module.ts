@@ -13,6 +13,9 @@ import { AuthModule } from './auth/auth.module';
 import { ConversationsModule } from './conversations/conversations.module';
 import { WalletModule } from './wallet/wallet.module';
 import { AdminModule } from './admin/admin.module';
+import { LoudSpeakerModule } from './loud-speaker/loud-speaker.module';
+import { MessageRequestModule } from './message-request/message-request.module';
+import { PremiumModule } from './premium/premium.module';
 
 @Module({
   imports: [
@@ -32,6 +35,9 @@ import { AdminModule } from './admin/admin.module';
     ConversationsModule,
     WalletModule,
     AdminModule,
+    LoudSpeakerModule,
+    MessageRequestModule,
+    PremiumModule,
   ],
 })
 export class AppModule {}

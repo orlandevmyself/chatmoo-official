@@ -8,6 +8,9 @@ import ConfigManagement from './components/ConfigManagement';
 import GiftCatalog from './components/GiftCatalog';
 import Operations from './components/Operations';
 import WalletDashboard from './components/WalletDashboard';
+import LoudSpeakerDashboard from './components/LoudSpeakerDashboard';
+import VoucherManagement from './components/VoucherManagement';
+import PremiumManagement from './components/PremiumManagement';
 import LoginPage from './components/LoginPage';
 import { AdminAuthContext } from './context/AdminAuthContext';
 import './AdminApp.css';
@@ -78,6 +81,9 @@ function AdminApp() {
               <Route path="/gifts" element={<GiftCatalog adminUserId={adminUser.id} />} />
               <Route path="/operations" element={<Operations adminUserId={adminUser.id} />} />
               <Route path="/wallet" element={<WalletDashboard adminUserId={adminUser.id} />} />
+              <Route path="/loud-speaker" element={<LoudSpeakerDashboard adminUserId={adminUser.id} />} />
+              <Route path="/vouchers" element={<VoucherManagement adminUserId={adminUser.id} />} />
+              <Route path="/premium" element={<PremiumManagement adminUserId={adminUser.id} />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </main>

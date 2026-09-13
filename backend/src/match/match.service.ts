@@ -33,7 +33,7 @@ export class MatchService {
     };
   }
 
-  async findMatch(sessionId: string) {
+  async findMatch(sessionId: string, filters?: { country?: string; gender?: string }) {
     const session = await this.sessionService.getSession(sessionId);
     if (!session) {
       throw new Error('Session not found');
@@ -58,7 +58,8 @@ export class MatchService {
     // Try to find a matching session
     const matchedSession = await this.sessionService.getMatchingSession(
       sessionId,
-      session.genderFilter,
+      filters?.gender || session.genderFilter,
+      filters?.country,
     );
 
     if (!matchedSession) {

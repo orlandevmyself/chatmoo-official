@@ -174,7 +174,7 @@ mediaPrice?: string;
 
   async getUserConversations(userId: string) {
     console.log('[ConversationsService] Getting conversations for user:', userId);
-    
+
     // Shared conversations: rows I own AND rows where I am the partner
     // (e.g. AUTH <-> AUTH saves are visible to both users as the same conversation)
     const conversations = await (this.prisma as any).savedConversation.findMany({
@@ -183,19 +183,41 @@ mediaPrice?: string;
       include: {
         messages: {
           orderBy: { createdAt: 'asc' },
-          take: 1, // Get first message for preview
         },
         user: { select: this.ownerSelect() },
       },
     });
 
     console.log('[ConversationsService] Found conversations:', conversations.length);
-    return this.attachLivePartnerUsers(conversations);
+
+    // Calculate unread count for AUTH <-> AUTH conversations only
+    const withUnread = conversations.map(conv => {
+      let unreadCount = 0;
+      const isViewing = conv.userId === userId; // Is this user the owner?
+
+      // Only count unread for AUTH <-> AUTH (both have userIds)
+      if (conv.partnerUserId && isViewing && conv.lastReadByUserAt) {
+        // Count messages after lastReadByUserAt that aren't from this user
+        unreadCount = conv.messages.filter((msg: any) =>
+          msg.createdAt > conv.lastReadByUserAt && msg.senderId !== userId
+        ).length;
+      } else if (conv.partnerUserId && isViewing && !conv.lastReadByUserAt) {
+        // If never read, count all messages from partner
+        unreadCount = conv.messages.filter((msg: any) => msg.senderId !== userId).length;
+      }
+
+      return {
+        ...conv,
+        unreadCount,
+      };
+    });
+
+    return this.attachLivePartnerUsers(withUnread);
   }
 
   async getConversationById(conversationId: string, userId: string, guestId?: string) {
     console.log('[ConversationsService] Getting conversation:', conversationId);
-    
+
     const or = this.participantOr(userId, guestId);
     const conversation = await (this.prisma as any).savedConversation.findFirst({
       where: or.length > 0
@@ -211,6 +233,14 @@ mediaPrice?: string;
 
     if (!conversation) {
       throw new Error('Conversation not found');
+    }
+
+    // Mark conversation as read by this user (AUTH <-> AUTH only)
+    if (userId && conversation.userId === userId && conversation.partnerUserId) {
+      await (this.prisma as any).savedConversation.update({
+        where: { id: conversationId },
+        data: { lastReadByUserAt: new Date() },
+      });
     }
 
     console.log('[ConversationsService] Conversation found with', conversation.messages.length, 'messages');

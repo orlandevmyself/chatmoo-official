@@ -82,7 +82,7 @@ export class WalletService {
     const page = Math.max(1, Number(query.page) || 1);
     const limit = Math.min(50, Math.max(1, Number(query.limit) || 20));
     const where: any = { userId };
-    if (['deposit', 'withdraw', 'gift', 'gift_send', 'gift_receive', 'media', 'media_send', 'media_receive'].includes(query.type || '')) {
+    if (['deposit', 'withdraw', 'gift', 'gift_send', 'gift_receive', 'media', 'media_send', 'media_receive', 'voucher_bonus'].includes(query.type || '')) {
       if (query.type === 'gift') {
         where.type = { in: ['gift_send', 'gift_receive'] };
       } else if (query.type === 'media') {
@@ -126,10 +126,52 @@ export class WalletService {
     amountMinor: number;
     method?: string;
     idempotencyKey?: string;
+    voucherCode?: string;
   }) {
     if (!userId) throw new BadRequestException('userId is required');
     this.validateAmount(data.amountMinor, MIN_DEPOSIT_MINOR);
     this.validateMethod(data.method);
+
+    let voucherId: string | undefined;
+
+    // Pre-validate voucher if provided
+    if (data.voucherCode) {
+      const voucher = await (this.prisma as any).voucher.findUnique({
+        where: { code: data.voucherCode },
+      });
+
+      if (!voucher) {
+        throw new BadRequestException('Voucher code not found');
+      }
+      if (!voucher.active) {
+        throw new BadRequestException('Voucher is no longer active');
+      }
+      const now = new Date();
+      if (voucher.validUntil && voucher.validUntil < now) {
+        throw new BadRequestException('Voucher has expired');
+      }
+      if (now < voucher.validFrom) {
+        throw new BadRequestException('Voucher is not yet valid');
+      }
+      if (voucher.currentUses >= voucher.maxUses) {
+        throw new BadRequestException('Voucher has reached its usage limit');
+      }
+
+      // Check if user already used this voucher
+      const existingUsage = await (this.prisma as any).voucherUsage.findUnique({
+        where: {
+          voucherId_userId: {
+            voucherId: voucher.id,
+            userId,
+          },
+        },
+      });
+      if (existingUsage) {
+        throw new BadRequestException('You have already used this voucher code');
+      }
+
+      voucherId = voucher.id;
+    }
 
     const provider = getPaymentProvider(); // throws safely if misconfigured
     const quote = provider.quote('deposit', data.amountMinor, data.method);
@@ -154,6 +196,7 @@ export class WalletService {
             status: 'pending',
             provider: provider.name,
             method: data.method,
+            voucherId: voucherId || undefined,
             idempotencyKey: data.idempotencyKey || undefined,
           },
         });
@@ -196,12 +239,99 @@ export class WalletService {
       });
       console.log('[WalletService] Deposit settled:', txId, 'credited:', moved === 1);
       emitWalletUpdated(tx.userId);
+
+      // Apply voucher bonus if applicable (asynchronously to avoid slowing settlement)
+      if (tx.voucherId) {
+        void this.tryRedeemVoucher(tx.voucherId, tx.userId, tx.walletId, tx.amount);
+      }
     } catch (e: any) {
       console.error('[WalletService] Deposit settlement failed:', txId, e?.message);
       await (this.prisma as any).walletTransaction.updateMany({
         where: { id: txId, status: 'pending' },
         data: { status: 'failed', remarks: 'Provider settlement failed' },
       });
+    }
+  }
+
+  private async tryRedeemVoucher(voucherId: string, userId: string, walletId: string, depositAmount: number) {
+    try {
+      // Fetch voucher with current snapshot to use in atomic operations
+      const voucher = await (this.prisma as any).voucher.findUnique({
+        where: { id: voucherId },
+      });
+      if (!voucher) return;
+
+      await (this.prisma as any).$transaction(async (t: any) => {
+        // Atomically claim a usage slot
+        const claimed = await t.voucher.updateMany({
+          where: {
+            id: voucherId,
+            currentUses: { lt: voucher.maxUses },
+          },
+          data: { currentUses: { increment: 1 } },
+        });
+        if (claimed.count === 0) {
+          console.log('[WalletService] Voucher fully redeemed, skipping bonus:', voucherId);
+          return;
+        }
+
+        // Compute bonus amount
+        let bonusAmount: number;
+        if (voucher.bonusType === 'percentage') {
+          bonusAmount = Math.floor((depositAmount * voucher.bonusAmount) / 100);
+          if (voucher.maxBonusMinor) {
+            bonusAmount = Math.min(bonusAmount, voucher.maxBonusMinor);
+          }
+        } else {
+          // fixed
+          bonusAmount = voucher.bonusAmount;
+        }
+
+        // Create VoucherUsage record (will fail with P2002 if already used by this user)
+        try {
+          await t.voucherUsage.create({
+            data: {
+              voucherId,
+              userId,
+              bonusAmount,
+            },
+          });
+        } catch (e: any) {
+          if (e?.code === 'P2002') {
+            console.log('[WalletService] User already has voucher usage record, skipping:', userId, voucherId);
+            return;
+          }
+          throw e;
+        }
+
+        // Credit wallet with bonus
+        await t.wallet.update({
+          where: { id: walletId },
+          data: { balance: { increment: bonusAmount } },
+        });
+
+        // Create bonus transaction record
+        await t.walletTransaction.create({
+          data: {
+            walletId,
+            userId,
+            type: 'voucher_bonus',
+            amount: bonusAmount,
+            fee: 0,
+            status: 'completed',
+            provider: 'demo',
+            method: 'voucher',
+            voucherId,
+            remarks: `Voucher bonus: ${voucher.code}`,
+          },
+        });
+
+        console.log('[WalletService] Voucher redeemed:', voucherId, 'user:', userId, 'bonus:', bonusAmount);
+      });
+      emitWalletUpdated(userId);
+    } catch (e: any) {
+      // Log but don't fail the deposit itself
+      console.error('[WalletService] Voucher redemption failed:', voucherId, userId, e?.message);
     }
   }
 

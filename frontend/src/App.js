@@ -1,14 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import axios from 'axios';
 import LandingPage from './components/LandingPage';
 import ChatPage from './components/ChatPage';
 import ProfileSetup from './components/ProfileSetup';
 import UserDashboard from './components/UserDashboard';
 import SettingsPage from './components/SettingsPage';
 import WalletPage from './components/WalletPage';
+import LoudSpeakerPage from './components/LoudSpeakerPage';
 import { sessionManager } from './utils/sessionManager';
 import { resetAppSettings } from './utils/appSettings';
 import './App.css';
+
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3000';
 
 function LoadingScreen() {
   return (
@@ -24,6 +28,7 @@ function App() {
   const [guestSession, setGuestSession] = useState(null);
   const [profileTick, setProfileTick] = useState(0);
   const [restoring, setRestoring] = useState(true);
+  const [walletBalance, setWalletBalance] = useState(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -75,6 +80,19 @@ function App() {
     loadSession();
     setRestoring(false);
   }, []);
+
+  // Fetch wallet balance when user logs in
+  useEffect(() => {
+    let cancelled = false;
+    if (!googleUser?.id) {
+      setWalletBalance(null);
+      return;
+    }
+    axios.get(`${API_URL}/wallet?userId=${googleUser.id}`)
+      .then((res) => { if (!cancelled) setWalletBalance(res.data?.balance ?? null); })
+      .catch(() => { if (!cancelled) setWalletBalance(null); });
+    return () => { cancelled = true; };
+  }, [googleUser?.id]);
 
   const handleStartChat = (sessionData) => {
     setSession(sessionData);
@@ -203,6 +221,23 @@ function App() {
           path="/conversations/:conversationId"
           element={
             googleUser ? dashboard : <Navigate to="/" replace />
+          }
+        />
+        <Route
+          path="/loud-speaker"
+          element={
+            googleUser ? (
+              <LoudSpeakerPage
+                userId={googleUser.id}
+                onBack={() => {
+                  setProfileTick((t) => t + 1);
+                  navigate('/');
+                }}
+                walletBalance={walletBalance}
+              />
+            ) : (
+              <Navigate to="/" replace />
+            )
           }
         />
         <Route path="*" element={<Navigate to="/" replace />} />

@@ -6,6 +6,9 @@ import { Card } from './ui/card';
 import { ArrowLeft, Globe, WifiOff } from 'lucide-react';
 import { sessionManager } from '../utils/sessionManager';
 import ChatWindow from './ChatWindow';
+import PremiumFilters from './PremiumFilters';
+import PremiumPurchase from './PremiumPurchase';
+import PremiumSetup from './PremiumSetup';
 import { getAvatarUrl, getDisplayName, getFlagUrl } from '../utils/conversationHelpers';
 import { getAppSettings, playMessageSound, notifyNewMessage } from '../utils/appSettings';
 import { getErrorMessage, isNetworkError } from '../utils/network';
@@ -27,6 +30,11 @@ function ChatPage({ session, onBackToLanding }) {
   const [isSaving, setIsSaving] = useState(false);
   const [hasSaved, setHasSaved] = useState(false);
   const [walletBalance, setWalletBalance] = useState(null);
+  const [isPremium, setIsPremium] = useState(false);
+  const [showPremiumModal, setShowPremiumModal] = useState(false);
+  const [showPremiumSetup, setShowPremiumSetup] = useState(false);
+  const [setupCompleted, setSetupCompleted] = useState(false);
+  const [filters, setFilters] = useState({ country: '', gender: 'all' });
   const [socketConnected, setSocketConnected] = useState(true);
   const [connectionNotice, setConnectionNotice] = useState('');
   const socketRef = useRef(null);
@@ -54,8 +62,13 @@ function ChatPage({ session, onBackToLanding }) {
       setSocketConnected(true);
       setConnectionNotice('');
       if (status === 'searching') {
-        console.log('[Frontend] Socket connected while searching, starting matching');
-        setTimeout(() => startMatchingRef.current?.(), 500);
+        // Don't start matching if premium user hasn't completed setup yet
+        if (isPremium && !setupCompleted) {
+          console.log('[Frontend] Premium user setup not complete yet, waiting for setup to finish');
+        } else {
+          console.log('[Frontend] Socket connected while searching, starting matching');
+          setTimeout(() => startMatchingRef.current?.(), 500);
+        }
       } else if (status === 'matched' && chatroomId) {
         console.log('[Frontend] Socket connected while matched, rejoining chatroom:', chatroomId);
         newSocket.emit('joinChatroom', { chatroomId });
@@ -301,6 +314,30 @@ function ChatPage({ session, onBackToLanding }) {
     };
   }, [session.id]);
 
+  // Load premium status
+  useEffect(() => {
+    const loadPremiumStatus = async () => {
+      try {
+        const res = await axios.get(`${API_URL}/premium/is-premium?userId=${session.userId}`);
+        setIsPremium(res.data.isPremium);
+      } catch (err) {
+        console.error('Error loading premium status:', err);
+        setIsPremium(false);
+      }
+    };
+
+    if (session?.userId) {
+      loadPremiumStatus();
+    }
+  }, [session?.userId]);
+
+  // Show setup when premium user enters searching state
+  useEffect(() => {
+    if (isPremium && status === 'searching' && !setupCompleted && !showPremiumSetup) {
+      setShowPremiumSetup(true);
+    }
+  }, [status, isPremium, setupCompleted, showPremiumSetup]);
+
   const startMatching = async () => {
     if (status === 'matched' || status === 'ended') {
       console.log('[Frontend] Already matched or ended, skipping matching');
@@ -317,7 +354,12 @@ function ChatPage({ session, onBackToLanding }) {
     try {
       console.log('[Frontend] Starting match search for session:', session.id);
       console.log('[Frontend] Socket status:', socketRef.current ? 'Connected' : 'Not connected');
-      const response = await axios.post(`${API_URL}/match/${session.id}/find`);
+      const url = new URL(`${API_URL}/match/${session.id}/find`);
+      if (isPremium && (filters.country || filters.gender !== 'all')) {
+        if (filters.country) url.searchParams.append('country', filters.country);
+        if (filters.gender !== 'all') url.searchParams.append('gender', filters.gender);
+      }
+      const response = await axios.post(url.toString());
       console.log('[Frontend] Match response:', response.data);
       
       if (response.data.matched) {
@@ -844,13 +886,36 @@ function ChatPage({ session, onBackToLanding }) {
     onBackToLanding();
   };
 
+  const handlePremiumSetupComplete = (setupData) => {
+    // Save the setup data to session/profile
+    setFilters({
+      country: setupData.country || '',
+      gender: setupData.gender || 'all',
+    });
+    setSetupCompleted(true);
+    setShowPremiumSetup(false);
+    // Start matching after setup is complete
+    setTimeout(() => startMatchingRef.current?.(), 500);
+  };
+
   if (status === 'searching') {
+    // Show premium setup if user is premium and hasn't completed setup
+    if (isPremium && showPremiumSetup) {
+      return (
+        <PremiumSetup
+          userProfile={session.user || { username: session.username }}
+          onComplete={handlePremiumSetupComplete}
+          onBack={handleBackToLanding}
+        />
+      );
+    }
+
     return (
       <div className="min-h-screen bg-gradient-to-br from-navy via-softPurple to-coral flex items-center justify-center p-4 relative overflow-hidden">
         <div className="absolute top-0 right-0 w-96 h-96 bg-white/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
         <div className="absolute bottom-0 left-0 w-96 h-96 bg-white/10 rounded-full blur-3xl translate-y-1/2 -translate-x-1/2" />
 
-        <Card className="relative z-10 bg-cream/95 backdrop-blur-lg shadow-2xl border-0 max-w-md w-full p-8 text-center">
+        <Card className="relative z-10 bg-cream/95 backdrop-blur-lg shadow-2xl border-0 max-w-md w-full p-8">
           <div className="w-24 h-24 mx-auto mb-6 relative">
             <div className="absolute inset-0 border-4 border-coral/20 rounded-full animate-spin" />
             <div className="absolute inset-2 border-4 border-coral/40 rounded-full animate-spin" style={{ animationDelay: '0.1s' }} />
@@ -863,38 +928,73 @@ function ChatPage({ session, onBackToLanding }) {
               />
             </div>
           </div>
-          <h2 className="text-2xl font-bold mb-2 text-navy">Searching for a match...</h2>
-          <p className="text-navy/70 mb-2">Looking for someone to chat with</p>
-          {connectionNotice && (
-            <p className="mb-4 bg-amber-100/90 text-amber-800 text-sm font-medium rounded-lg px-3 py-2 flex items-center justify-center gap-2">
-              <WifiOff className="w-4 h-4 shrink-0" />
-              {connectionNotice}
-            </p>
-          )}
-          {session.country && (
-            <p className="text-navy/50 text-sm flex items-center justify-center gap-2">
-              <Globe className="w-4 h-4" />
-              {session.countryCode ? (
-                <img
-                  src={getFlagUrl(session.countryCode)}
-                  alt={session.country}
-                  className="w-6 h-4 object-cover rounded"
-                />
-              ) : (
-                <span className="text-2xl">🌍</span>
-              )}
-              {session.country}
-            </p>
-          )}
-          <Button
-            variant="outline"
-            onClick={handleBackToLanding}
-            className="rounded-xl border-navy/20 text-navy hover:bg-navy/5"
-          >
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Back to Home
-          </Button>
+
+          {/* Premium Filters */}
+          <div className="mb-6">
+            <PremiumFilters
+              isPremium={isPremium}
+              session={session}
+              onGetPremium={() => setShowPremiumModal(true)}
+              onFiltersChange={(newFilters) => setFilters(newFilters)}
+            />
+          </div>
+
+          <div className="text-center">
+            <h2 className="text-2xl font-bold mb-2 text-navy">Searching for a match...</h2>
+            <p className="text-navy/70 mb-2">Looking for someone to chat with</p>
+            {connectionNotice && (
+              <p className="mb-4 bg-amber-100/90 text-amber-800 text-sm font-medium rounded-lg px-3 py-2 flex items-center justify-center gap-2">
+                <WifiOff className="w-4 h-4 shrink-0" />
+                {connectionNotice}
+              </p>
+            )}
+            {session.country && (
+              <p className="text-navy/50 text-sm flex items-center justify-center gap-2">
+                <Globe className="w-4 h-4" />
+                {session.countryCode ? (
+                  <img
+                    src={getFlagUrl(session.countryCode)}
+                    alt={session.country}
+                    className="w-6 h-4 object-cover rounded"
+                  />
+                ) : (
+                  <span className="text-2xl">🌍</span>
+                )}
+                {session.country}
+              </p>
+            )}
+            <Button
+              variant="outline"
+              onClick={handleBackToLanding}
+              className="rounded-xl border-navy/20 text-navy hover:bg-navy/5 w-full"
+            >
+              <ArrowLeft className="w-4 h-4 mr-2" />
+              Back to Home
+            </Button>
+          </div>
         </Card>
+
+        {/* Premium Purchase Modal */}
+        {showPremiumModal && (
+          <PremiumPurchase
+            googleUser={session?.user || { id: session?.userId }}
+            currentBalance={walletBalance || 0}
+            onClose={() => setShowPremiumModal(false)}
+            onSuccess={() => {
+              setShowPremiumModal(false);
+              // Reload premium status after purchase
+              const loadPremiumStatus = async () => {
+                try {
+                  const res = await axios.get(`${API_URL}/premium/is-premium?userId=${session.userId}`);
+                  setIsPremium(res.data.isPremium);
+                } catch (err) {
+                  console.error('Error loading premium status:', err);
+                }
+              };
+              loadPremiumStatus();
+            }}
+          />
+        )}
       </div>
     );
   }
@@ -981,6 +1081,8 @@ function ChatPage({ session, onBackToLanding }) {
       onSendGift={handleSendGift}
       onTypingStart={handleTypingStart}
       onTypingStop={handleTypingStop}
+      loudspeakerScope="chat"
+      loudspeakerId={session?.id}
       />
     </div>
   );

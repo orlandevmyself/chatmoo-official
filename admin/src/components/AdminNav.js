@@ -9,6 +9,9 @@ import {
   LogOut,
   Menu,
   Wrench,
+  Volume2,
+  Ticket,
+  Zap,
 } from 'lucide-react';
 
 function AdminNav({ adminUser, onLogout }) {
@@ -20,6 +23,9 @@ function AdminNav({ adminUser, onLogout }) {
   const navItems = [
     { path: '/', label: 'Overview', icon: BarChart3 },
     { path: '/wallet', label: 'Wallet', icon: CreditCard },
+    { path: '/loud-speaker', label: 'Loud Speaker', icon: Volume2 },
+    { path: '/vouchers', label: 'Vouchers', icon: Ticket },
+    { path: '/premium', label: 'Premium', icon: Zap },
     { path: '/users', label: 'Users', icon: Users },
     { path: '/transactions', label: 'Transactions', icon: CreditCard },
     { path: '/gifts', label: 'Gifts', icon: Gift },

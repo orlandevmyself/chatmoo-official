@@ -3,6 +3,7 @@ import { ModuleRef } from '@nestjs/core';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { GuestCleanupService } from '../auth/guest-cleanup.service';
+import { PremiumService } from '../premium/premium.service';
 
 @Injectable()
 export class SessionService {
@@ -10,6 +11,7 @@ export class SessionService {
     private prisma: PrismaService,
     private redis: RedisService,
     private moduleRef: ModuleRef,
+    private premiumService: PremiumService,
   ) {}
 
   async createSession(data: {
@@ -45,6 +47,9 @@ export class SessionService {
       userId = guestUser.id;
     }
 
+    // Check if user has active premium subscription
+    const isPremium = await this.premiumService.isPremium(userId);
+
     const session = await this.prisma.session.create({
       data: {
         userId,
@@ -56,27 +61,33 @@ export class SessionService {
         gender: data.gender,
         avatar: data.avatar || 'adventurer',
         avatarSeed: data.avatarSeed,
+        isPremium,
         status: 'active',
       },
     });
 
-    // Add to matching queue in Redis
+    // Add to matching queue in Redis (premium users get priority)
     const redisClient = this.redis.getClient();
+    const queueData = {
+      sessionId: session.id,
+      username: session.username,
+      country: session.country,
+      countryCode: session.countryCode,
+      university: session.university,
+      genderFilter: session.genderFilter,
+      gender: session.gender,
+      avatar: session.avatar || 'adventurer',
+      avatarSeed: session.avatarSeed,
+      isPremium,
+      timestamp: Date.now(),
+    };
+
+    // Premium users get longer queue TTL (higher priority)
+    const queueTTL = isPremium ? 600 : 300;
     await redisClient.setex(
       `queue:${session.id}`,
-      300,
-      JSON.stringify({
-        sessionId: session.id,
-        username: session.username,
-        country: session.country,
-        countryCode: session.countryCode,
-        university: session.university,
-        genderFilter: session.genderFilter,
-        gender: session.gender,
-        avatar: session.avatar || 'adventurer',
-        avatarSeed: session.avatarSeed,
-        timestamp: Date.now(),
-      }),
+      queueTTL,
+      JSON.stringify(queueData),
     );
 
     return session;
@@ -137,13 +148,20 @@ export class SessionService {
     } as any);
   }
 
-  async getMatchingSession(excludeSessionId: string, genderFilter?: string) {
+  async getMatchingSession(excludeSessionId: string, genderFilter?: string, countryFilter?: string) {
     const searchingSessions = await this.getSearchingSessions(genderFilter);
 
     // Filter out the current session
-    const availableSessions = searchingSessions.filter(
+    let availableSessions = searchingSessions.filter(
       (session) => session.id !== excludeSessionId
     );
+
+    // Apply country filter if provided
+    if (countryFilter) {
+      availableSessions = availableSessions.filter(
+        (session) => session.country === countryFilter
+      );
+    }
 
     // Try to find the best match based on university
     const targetSession = await this.getSession(excludeSessionId);

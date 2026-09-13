@@ -1,4 +1,4 @@
-import { Controller, Post, Param, Body } from '@nestjs/common';
+import { Controller, Post, Param, Body, Query } from '@nestjs/common';
 import { MatchService } from './match.service';
 
 @Controller('match')
@@ -6,8 +6,12 @@ export class MatchController {
   constructor(private readonly matchService: MatchService) {}
 
   @Post(':sessionId/find')
-  async findMatch(@Param('sessionId') sessionId: string) {
-    return this.matchService.findMatch(sessionId);
+  async findMatch(
+    @Param('sessionId') sessionId: string,
+    @Query('country') country?: string,
+    @Query('gender') gender?: string,
+  ) {
+    return this.matchService.findMatch(sessionId, { country, gender });
   }
 
   @Post(':sessionId/skip')

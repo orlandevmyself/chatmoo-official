@@ -5,6 +5,9 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import SavedConversationChat from './SavedConversationChat';
+import UserSearch from './UserSearch';
+import PremiumPurchase from './PremiumPurchase';
+import PremiumBadge from './PremiumBadge';
 import { getAvatarUrl, getConversationPartner } from '../utils/conversationHelpers';
 import { getAppSettings, initAppSettings, STATUS_META } from '../utils/appSettings';
 import {
@@ -19,9 +22,12 @@ import {
   RefreshCw,
   Wallet,
   Coins,
+  Volume2,
+  Zap,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useNavigate, useParams } from 'react-router-dom';
+import LoudSpeaker from './LoudSpeaker';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3000';
 
@@ -35,14 +41,34 @@ function UserDashboard({ googleUser, onLogout, onStartChat, onOpenSettings, onOp
   const [menuOpen, setMenuOpen] = useState(false);
   const [walletBalance, setWalletBalance] = useState(null);
   const [walletLoading, setWalletLoading] = useState(false);
+  const [isPremium, setIsPremium] = useState(false);
+  const [premiumStatus, setPremiumStatus] = useState(null);
+  const [showPremiumModal, setShowPremiumModal] = useState(false);
   const [, setSettingsVersion] = useState(0);
   const menuRef = useRef(null);
 
   useEffect(() => {
     loadUserProfile();
+    loadPremiumStatus();
     // Warm the settings cache from the DB, then re-render with DB values
     initAppSettings(googleUser?.id).finally(() => setSettingsVersion((v) => v + 1));
   }, [googleUser, refreshSignal]);
+
+  const loadPremiumStatus = async () => {
+    if (!googleUser?.id) return;
+    try {
+      const [isPremiumRes, statusRes] = await Promise.all([
+        axios.get(`${API_URL}/premium/is-premium?userId=${googleUser.id}`),
+        axios.get(`${API_URL}/premium/status?userId=${googleUser.id}`),
+      ]);
+      setIsPremium(isPremiumRes.data.isPremium);
+      setPremiumStatus(statusRes.data);
+    } catch (err) {
+      console.error('Error loading premium status:', err);
+      setIsPremium(false);
+      setPremiumStatus(null);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -122,6 +148,7 @@ function UserDashboard({ googleUser, onLogout, onStartChat, onOpenSettings, onOp
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [showUserSearch, setShowUserSearch] = useState(false);
 
   useEffect(() => {
     loadConversations();
@@ -276,7 +303,10 @@ function UserDashboard({ googleUser, onLogout, onStartChat, onOpenSettings, onOp
               );
             })()}
             <div className="flex-1 min-w-0">
-              <p className="font-medium text-navy truncate">{userProfile?.displayName || userProfile?.username || googleUser?.name || 'User'}</p>
+              <div className="flex items-center gap-2">
+                <p className="font-medium text-navy truncate">{userProfile?.displayName || userProfile?.username || googleUser?.name || 'User'}</p>
+                <PremiumBadge isPremium={isPremium} daysRemaining={premiumStatus?.daysRemaining} size="xs" />
+              </div>
               <p className="text-sm text-navy/60 truncate">@{userProfile?.username || googleUser?.email || ''}</p>
             </div>
             <button
@@ -313,6 +343,28 @@ function UserDashboard({ googleUser, onLogout, onStartChat, onOpenSettings, onOp
                     </span>
                     <span className="text-[10px] uppercase tracking-wide text-navy/40 font-semibold">Wallet</span>
                   </button>
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false);
+                      navigate('/loud-speaker');
+                    }}
+                    className="w-full flex items-center gap-2 px-4 py-3 text-sm text-navy hover:bg-navy/5 transition-colors text-left"
+                  >
+                    <Volume2 className="w-4 h-4 text-coral" />
+                    Loud Speaker
+                  </button>
+                  {!isPremium && (
+                    <button
+                      onClick={() => {
+                        setMenuOpen(false);
+                        setShowPremiumModal(true);
+                      }}
+                      className="w-full flex items-center gap-2 px-4 py-3 text-sm font-semibold bg-gradient-to-r from-coral/10 to-softPurple/10 text-coral hover:from-coral/20 hover:to-softPurple/20 transition-colors text-left border-y border-coral/20"
+                    >
+                      <Zap className="w-4 h-4" />
+                      Get Premium
+                    </button>
+                  )}
                   <button
                     onClick={() => {
                       setMenuOpen(false);
@@ -359,8 +411,8 @@ function UserDashboard({ googleUser, onLogout, onStartChat, onOpenSettings, onOp
           </div>
         </div>
 
-        {/* New Chat Button */}
-        <div className="px-4 pb-4">
+        {/* New Chat & Find Users Buttons */}
+        <div className="px-4 pb-4 space-y-2">
           <Button
             onClick={handleStartChat}
             className="w-full bg-gradient-to-r from-coral to-softPurple hover:from-coral/90 hover:to-softPurple/90"
@@ -368,6 +420,19 @@ function UserDashboard({ googleUser, onLogout, onStartChat, onOpenSettings, onOp
             <Plus className="w-4 h-4 mr-2" />
             New Chat
           </Button>
+          <Button
+            onClick={() => setShowUserSearch(true)}
+            variant="outline"
+            className="w-full border-softPurple text-softPurple hover:bg-softPurple/5"
+          >
+            <Search className="w-4 h-4 mr-2" />
+            Find Users
+          </Button>
+        </div>
+
+        {/* Loud Speaker */}
+        <div className="px-2 pb-4">
+          <LoudSpeaker scope="sitewide" userId={googleUser?.id} />
         </div>
 
         {/* Conversations List */}
@@ -423,6 +488,11 @@ function UserDashboard({ googleUser, onLogout, onStartChat, onOpenSettings, onOp
                               )}>
                                 {displayPartner.isAuthenticated ? 'User' : 'Guest'}
                               </span>
+                              {displayPartner.isAuthenticated && conversation.unreadCount > 0 && (
+                                <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-coral text-white flex-shrink-0">
+                                  {conversation.unreadCount}
+                                </span>
+                              )}
                             </div>
                             <div className="flex items-center gap-1">
                               <button
@@ -493,6 +563,33 @@ function UserDashboard({ googleUser, onLogout, onStartChat, onOpenSettings, onOp
           </div>
         )}
       </div>
+
+      {/* User Search Modal */}
+      {showUserSearch && (
+        <UserSearch
+          googleUser={googleUser}
+          onClose={() => setShowUserSearch(false)}
+          onStartConversation={(user) => {
+            // When a user accepts a message request and clicks chat,
+            // we would typically start a new conversation or load existing one
+            setShowUserSearch(false);
+            handleStartChat();
+          }}
+        />
+      )}
+
+      {/* Premium Purchase Modal */}
+      {showPremiumModal && (
+        <PremiumPurchase
+          googleUser={googleUser}
+          currentBalance={walletBalance || 0}
+          onClose={() => setShowPremiumModal(false)}
+          onSuccess={() => {
+            setShowPremiumModal(false);
+            loadPremiumStatus();
+          }}
+        />
+      )}
     </div>
   );
 }

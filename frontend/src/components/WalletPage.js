@@ -57,6 +57,7 @@ function WalletPage({ googleUser, onBack }) {
   const [formError, setFormError] = useState('');
   const [depAmount, setDepAmount] = useState('');
   const [depMethod, setDepMethod] = useState('gcash');
+  const [depVoucherCode, setDepVoucherCode] = useState('');
   const [wdAmount, setWdAmount] = useState('');
   const [wdMethod, setWdMethod] = useState('gcash');
   const [wdName, setWdName] = useState('');
@@ -137,9 +138,11 @@ function WalletPage({ googleUser, onBack }) {
         amountMinor,
         method: depMethod,
         idempotencyKey: newIdempotencyKey(),
+        voucherCode: depVoucherCode.trim() || undefined,
       });
       setShowDeposit(false);
       setDepAmount('');
+      setDepVoucherCode('');
       refreshAfterSubmit();
     } catch (err) {
       setFormError(getErrorMessage(err, 'Deposit failed. Please try again.'));
@@ -364,41 +367,48 @@ function WalletPage({ googleUser, onBack }) {
             </div>
           ) : (
             <div className="space-y-2">
-              {txs.map((tx) => (
-                <div
-                  key={tx.id}
-                  className="flex items-center gap-3 p-3 rounded-xl border border-navy/10 hover:bg-navy/[0.02]"
-                >
-                  <div className={cn(
-                    "w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0",
-                    tx.type === 'deposit' ? "bg-green-100 text-green-700" : "bg-coral/10 text-coral"
-                  )}>
-                    {tx.type === 'deposit'
-                      ? <ArrowDownLeft className="w-5 h-5" />
-                      : <ArrowUpRight className="w-5 h-5" />}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm font-medium text-navy capitalize">{tx.type}</p>
-                      {statusBadge(tx.status)}
+              {txs.map((tx) => {
+                const isDeposit = tx.type === 'deposit';
+                const isVoucherBonus = tx.type === 'voucher_bonus';
+                const isPositive = isDeposit || isVoucherBonus;
+                return (
+                  <div
+                    key={tx.id}
+                    className="flex items-center gap-3 p-3 rounded-xl border border-navy/10 hover:bg-navy/[0.02]"
+                  >
+                    <div className={cn(
+                      "w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0",
+                      isPositive ? "bg-green-100 text-green-700" : "bg-coral/10 text-coral"
+                    )}>
+                      {isPositive
+                        ? <ArrowDownLeft className="w-5 h-5" />
+                        : <ArrowUpRight className="w-5 h-5" />}
                     </div>
-                    <p className="text-xs text-navy/50 truncate">
-                      {formatDateTime(tx.createdAt)}
-                      {tx.method ? ` · ${tx.method.toUpperCase()}` : ''}
-                      {tx.destination ? ` · ${tx.destination}` : ''}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium text-navy">
+                          {isVoucherBonus ? '+ Bonus' : tx.type.charAt(0).toUpperCase() + tx.type.slice(1)}
+                        </p>
+                        {statusBadge(tx.status)}
+                      </div>
+                      <p className="text-xs text-navy/50 truncate">
+                        {formatDateTime(tx.createdAt)}
+                        {tx.method ? ` · ${tx.method.toUpperCase()}` : ''}
+                        {tx.destination ? ` · ${tx.destination}` : ''}
+                      </p>
+                      {tx.remarks && (
+                        <p className="text-xs text-navy/50 truncate">{tx.remarks}</p>
+                      )}
+                    </div>
+                    <p className={cn(
+                      "text-sm font-bold flex-shrink-0",
+                      isPositive ? "text-green-600" : "text-navy"
+                    )}>
+                      {isPositive ? '+' : '−'}{formatPHP(tx.amount)}
                     </p>
-                    {tx.remarks && (
-                      <p className="text-xs text-navy/50 truncate">{tx.remarks}</p>
-                    )}
                   </div>
-                  <p className={cn(
-                    "text-sm font-bold flex-shrink-0",
-                    tx.type === 'deposit' ? "text-green-600" : "text-navy"
-                  )}>
-                    {tx.type === 'deposit' ? '+' : '−'}{formatPHP(tx.amount)}
-                  </p>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
 
@@ -459,6 +469,15 @@ function WalletPage({ googleUser, onBack }) {
                     </button>
                   ))}
                 </div>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-navy">Voucher Code (optional)</label>
+                <Input
+                  value={depVoucherCode}
+                  onChange={(e) => setDepVoucherCode(e.target.value.toUpperCase())}
+                  placeholder="e.g., XXXX-XXXX"
+                  className="rounded-xl font-mono"
+                />
               </div>
               {formError && (
                 <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-red-700 text-sm">

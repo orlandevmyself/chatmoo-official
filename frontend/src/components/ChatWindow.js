@@ -10,6 +10,7 @@ import { getAvatarUrl, getDisplayName, getFlagUrl } from '../utils/conversationH
 import { getAppSettings, CHAT_THEMES, FONT_SIZE_CLASSES } from '../utils/appSettings';
 import GiftPicker from './GiftPicker';
 import MediaLockDialog from './MediaLockDialog';
+import LoudSpeaker from './LoudSpeaker';
 import { getGift } from '../utils/giftCatalog';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3000';
@@ -27,6 +28,8 @@ function ChatWindow({
   liveConnected = true, // false = still joining the live channel; history still shown
   ownSenderIds = [],
   canSave = false,
+  loudspeakerScope = null,
+  loudspeakerId = null,
   showSaveButton = false,
   saveOfferSent = false,
   isSaving = false,
@@ -577,6 +580,7 @@ function ChatWindow({
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4">
         <div className="max-w-4xl mx-auto">
+          {loudspeakerScope && <LoudSpeaker scope={loudspeakerScope} userId={loudspeakerId} />}
           {messages.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-navy/50">
               <div className="w-20 h-20 bg-navy/10 rounded-full flex items-center justify-center mb-4">

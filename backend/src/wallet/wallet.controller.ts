@@ -52,12 +52,14 @@ export class WalletController {
     amountMinor: number;
     method?: string;
     idempotencyKey?: string;
+    voucherCode?: string;
   }) {
     console.log('[WalletController] Deposit request for user:', body?.userId, body?.amountMinor);
     return this.walletService.createDeposit(body?.userId, {
       amountMinor: body?.amountMinor,
       method: body?.method,
       idempotencyKey: body?.idempotencyKey,
+      voucherCode: body?.voucherCode,
     });
   }
 

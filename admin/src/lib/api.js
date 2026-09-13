@@ -107,4 +107,60 @@ export const adminApi = {
       method: 'POST',
       body: JSON.stringify({ amountMinor, method, destination }),
     }),
+
+  // Loud Speaker
+  getLoudSpeakerStats: (adminUserId) =>
+    adminFetch('/loud-speaker/stats', adminUserId),
+
+  getLoudSpeakerCampaigns: (adminUserId, params = {}) => {
+    const query = new URLSearchParams();
+    if (params.status) query.set('status', params.status);
+    if (params.scope) query.set('scope', params.scope);
+    if (params.page) query.set('page', params.page);
+    if (params.limit) query.set('limit', params.limit);
+    return adminFetch(`/loud-speaker/campaigns?${query}`, adminUserId);
+  },
+
+  getLoudSpeakerCampaignDetails: (adminUserId, campaignId) =>
+    adminFetch(`/loud-speaker/campaigns/${campaignId}`, adminUserId),
+
+  getLoudSpeakerConfig: (adminUserId) =>
+    adminFetch('/loud-speaker/config', adminUserId),
+
+  updateLoudSpeakerConfig: (adminUserId, config) =>
+    adminFetch('/loud-speaker/config', adminUserId, {
+      method: 'PUT',
+      body: JSON.stringify(config),
+    }),
+
+  cancelLoudSpeakerCampaign: (adminUserId, campaignId, reason) =>
+    adminFetch(`/loud-speaker/campaigns/${campaignId}/cancel`, adminUserId, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    }),
+
+  // Vouchers
+  getVouchers: (adminUserId, params = {}) => {
+    const query = new URLSearchParams();
+    if (params.active !== undefined) query.set('active', params.active);
+    if (params.search) query.set('search', params.search);
+    if (params.page) query.set('page', params.page);
+    if (params.limit) query.set('limit', params.limit);
+    return adminFetch(`/vouchers?${query}`, adminUserId);
+  },
+
+  createVoucher: (adminUserId, data) =>
+    adminFetch('/vouchers', adminUserId, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  getVoucherDetail: (adminUserId, voucherId) =>
+    adminFetch(`/vouchers/${voucherId}`, adminUserId),
+
+  updateVoucher: (adminUserId, voucherId, data) =>
+    adminFetch(`/vouchers/${voucherId}`, adminUserId, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
 };

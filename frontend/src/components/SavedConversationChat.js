@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import io from 'socket.io-client';
 import axios from 'axios';
 import ChatWindow from './ChatWindow';
+import LoudSpeaker from './LoudSpeaker';
 import { getConversationPartner, mapSavedToChat, mergeMessagesById, computeOwnSenderIds, getDisplayName } from '../utils/conversationHelpers';
 import { getAppSettings, playMessageSound, notifyNewMessage } from '../utils/appSettings';
 
@@ -429,6 +430,8 @@ function SavedConversationChat({ conversation, googleUser, userProfile, onClose 
           partnerOfflineText="Waiting for your partner to join — anything you send is saved for them."
           emptyTitle="No messages yet"
           emptySubtitle="Say hello to continue the conversation!"
+          loudspeakerScope="conversations"
+          loudspeakerId={googleUser?.id}
         />
       </div>
     </div>

@@ -2,6 +2,8 @@ import { Controller, Get, Patch, Post, Put, Delete, Query, Body, Param } from '@
 import { AdminService } from './admin.service';
 import { AdminAuthService } from './admin-auth.service';
 import { AdminWalletService } from './admin-wallet.service';
+import { AdminLoudSpeakerService } from './admin-loud-speaker.service';
+import { AdminVoucherService } from './admin-voucher.service';
 import { GiftService } from '../gifts/gift.service';
 import { AppConfigService } from '../config/config.service';
 
@@ -11,6 +13,8 @@ export class AdminController {
     private adminService: AdminService,
     private adminAuthService: AdminAuthService,
     private adminWalletService: AdminWalletService,
+    private adminLoudSpeakerService: AdminLoudSpeakerService,
+    private adminVoucherService: AdminVoucherService,
     private giftService: GiftService,
     private config: AppConfigService,
   ) {}
@@ -172,5 +176,119 @@ export class AdminController {
       body.method,
       body.destination,
     );
+  }
+
+  // ---- Loud Speaker ----
+  @Get('loud-speaker/stats')
+  async getLoudSpeakerStats(@Query('userId') adminUserId: string) {
+    await this.adminService.assertAdmin(adminUserId);
+    return this.adminLoudSpeakerService.getStats(adminUserId);
+  }
+
+  @Get('loud-speaker/campaigns')
+  async listLoudSpeakerCampaigns(
+    @Query('userId') adminUserId: string,
+    @Query('status') status?: string,
+    @Query('scope') scope?: string,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+  ) {
+    await this.adminService.assertAdmin(adminUserId);
+    return this.adminLoudSpeakerService.listCampaigns(adminUserId, { status, scope, page, limit });
+  }
+
+  @Get('loud-speaker/campaigns/:id')
+  async getLoudSpeakerCampaignDetails(
+    @Query('userId') adminUserId: string,
+    @Param('id') campaignId: string,
+  ) {
+    await this.adminService.assertAdmin(adminUserId);
+    return this.adminLoudSpeakerService.getCampaignDetails(adminUserId, campaignId);
+  }
+
+  @Get('loud-speaker/config')
+  async getLoudSpeakerConfig(@Query('userId') adminUserId: string) {
+    await this.adminService.assertAdmin(adminUserId);
+    return this.adminLoudSpeakerService.getConfig(adminUserId);
+  }
+
+  @Put('loud-speaker/config')
+  async updateLoudSpeakerConfig(
+    @Query('userId') adminUserId: string,
+    @Body() body: any,
+  ) {
+    await this.adminService.assertAdmin(adminUserId);
+    return this.adminLoudSpeakerService.updateConfig(adminUserId, body);
+  }
+
+  @Post('loud-speaker/campaigns/:id/cancel')
+  async cancelLoudSpeakerCampaign(
+    @Query('userId') adminUserId: string,
+    @Param('id') campaignId: string,
+    @Body() body: { reason?: string },
+  ) {
+    await this.adminService.assertAdmin(adminUserId);
+    return this.adminLoudSpeakerService.cancelCampaign(
+      adminUserId,
+      campaignId,
+      body.reason || 'Admin cancelled',
+    );
+  }
+
+  // ---- Vouchers ----
+  @Get('vouchers')
+  async listVouchers(
+    @Query('userId') adminUserId: string,
+    @Query('active') active?: string,
+    @Query('search') search?: string,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+  ) {
+    const activeVal = active === 'true' ? true : active === 'false' ? false : undefined;
+    return this.adminVoucherService.listVouchers(adminUserId, { active: activeVal, search, page, limit });
+  }
+
+  @Post('vouchers')
+  async createVoucher(
+    @Query('userId') adminUserId: string,
+    @Body() body: {
+      bonusType: 'percentage' | 'fixed';
+      bonusAmount: number;
+      maxBonusMinor?: number;
+      maxUses: number;
+      validUntil?: string;
+      description?: string;
+      code?: string;
+    },
+  ) {
+    return this.adminVoucherService.createVoucher(adminUserId, {
+      ...body,
+      validUntil: body.validUntil ? new Date(body.validUntil) : undefined,
+    });
+  }
+
+  @Get('vouchers/:id')
+  async getVoucherDetail(
+    @Query('userId') adminUserId: string,
+    @Param('id') voucherId: string,
+  ) {
+    return this.adminVoucherService.getVoucherDetail(adminUserId, voucherId);
+  }
+
+  @Patch('vouchers/:id')
+  async updateVoucher(
+    @Query('userId') adminUserId: string,
+    @Param('id') voucherId: string,
+    @Body() body: {
+      description?: string;
+      maxUses?: number;
+      validUntil?: string;
+      active?: boolean;
+    },
+  ) {
+    return this.adminVoucherService.updateVoucher(adminUserId, voucherId, {
+      ...body,
+      validUntil: body.validUntil ? new Date(body.validUntil) : undefined,
+    });
   }
 }
