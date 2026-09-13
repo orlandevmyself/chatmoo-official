@@ -102,6 +102,10 @@ export class ChatroomService {
     imageUrl?: string;
     type?: string;
     replyToId?: string;
+    mediaPrice?: string;
+    mediaUnlockKey?: string;
+    mediaUnlockedAt?: Date | null;
+    mediaPreviewUrl?: string | null;
   }) {
     console.log('[ChatroomService] Creating message:', data);
     const message = await this.prisma.message.create({
@@ -112,6 +116,10 @@ export class ChatroomService {
         imageUrl: data.imageUrl,
         type: data.type || 'text',
         replyToId: data.replyToId,
+        mediaPrice: data.mediaPrice,
+        mediaUnlockKey: data.mediaUnlockKey,
+        mediaUnlockedAt: data.mediaUnlockedAt,
+        mediaPreviewUrl: data.mediaPreviewUrl,
       },
       include: {
         replyTo: true,

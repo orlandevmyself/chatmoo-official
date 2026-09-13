@@ -83,7 +83,11 @@ model Message {
   senderId  String
   content   String
   imageUrl  String?  // For image messages
-  type      String   @default("text") // 'text', 'image', 'system'
+  type      String   @default("text") // 'text', 'image', 'video', 'gift', 'system'
+  mediaPrice String?  // JSON bundle { items:[{key,qty,label,coins,amountMinor,emoji}], priceCoins, priceMinor, sellerUserId, mediaType }
+  mediaUnlockKey String? // stable id linking live Message + SavedMessage copies of the same paid media
+  mediaUnlockedAt DateTime? // set when a recipient purchases/unlocks this media
+  mediaPreviewUrl String? // blurred low-res preview shown to recipients before unlock
   replyToId String?  // ID of the message being replied to
   replyTo   Message? @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
   replies   Message[] @relation("MessageReplies")
@@ -92,6 +96,7 @@ model Message {
   @@index([chatroomId])
   @@index([createdAt])
   @@index([replyToId])
+  @@index([mediaUnlockKey])
 }
 
 model SavedConversation {
@@ -149,12 +154,17 @@ model SavedMessage {
   senderUsername    String?  // Username of the sender (optional, can be fetched from session)
   content           String
   imageUrl          String?  // For image messages
-  type              String   @default("text") // 'text', 'image', 'system'
+  type              String   @default("text") // 'text', 'image', 'video', 'gift', 'system'
+  mediaPrice        String?  // JSON bundle (same shape as Message.mediaPrice)
+  mediaUnlockKey    String?
+  mediaUnlockedAt   DateTime?
+  mediaPreviewUrl   String?  // blurred low-res preview shown to recipients before unlock
   replyToId         String?  // ID of the message being replied to
   createdAt         DateTime @default(now())
 
   @@index([conversationId])
   @@index([createdAt])
+  @@index([mediaUnlockKey])
 }
 
 model UserSettings {

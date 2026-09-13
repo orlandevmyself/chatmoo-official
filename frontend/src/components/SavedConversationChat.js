@@ -162,6 +162,23 @@ function SavedConversationChat({ conversation, googleUser, userProfile, onClose 
           setTypingUsers(others);
         });
 
+        newSocket.on('mediaUnlocked', (data) => {
+          console.log('[SavedConversationChat] Media unlocked:', data);
+          setMessages((prev) => prev.map((m) => {
+            const keyMatch = data.mediaUnlockKey && m.mediaUnlockKey === data.mediaUnlockKey;
+            if (m.id === data.messageId || keyMatch) {
+              return {
+                ...m,
+                mediaUnlockedAt: data.mediaUnlockedAt || m.mediaUnlockedAt,
+                imageUrl: data.imageUrl || m.imageUrl,
+                mediaUnlockKey: data.mediaUnlockKey || m.mediaUnlockKey,
+              };
+            }
+            return m;
+          }));
+          if (typeof data.balance === 'number') setWalletBalance(data.balance);
+        });
+
         newSocket.on('messageReaction', (data) => {
           setMessageReactions(prev => {
             const current = prev[data.messageId] || [];
@@ -261,6 +278,52 @@ function SavedConversationChat({ conversation, googleUser, userProfile, onClose 
     });
   };
 
+  const handleSendMedia = async ({ imageUrl, previewUrl, type, mediaPrice, replyTo }) => {
+    if (!socketRef.current || !chatroomId) return;
+    socketRef.current.emit('sendMessage', {
+      chatroomId,
+      conversationId: conversation.id,
+      content: '',
+      imageUrl,
+      mediaPreviewUrl: previewUrl || undefined,
+      type: type === 'video' ? 'video' : 'image',
+      replyTo: replyTo || null,
+      mediaPrice: mediaPrice || undefined,
+    });
+  };
+
+  const handleUnlockMedia = async (messageId) => {
+    if (!socketRef.current) return { error: 'Not connected' };
+    const idempotencyKey = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+    try {
+      const res = await socketRef.current.emitWithAck('unlockMedia', {
+        conversationId: conversation.id,
+        chatroomId: chatroomId || undefined,
+        messageId,
+        idempotencyKey,
+      });
+      if (res?.error) return { error: res.error };
+      if (typeof res.balance === 'number') setWalletBalance(res.balance);
+      if (res.success) {
+        setMessages((prev) => prev.map((m) => {
+          const keyMatch = res.mediaUnlockKey && m.mediaUnlockKey === res.mediaUnlockKey;
+          if (m.id === res.messageId || keyMatch) {
+            return {
+              ...m,
+              mediaUnlockedAt: res.mediaUnlockedAt || m.mediaUnlockedAt,
+              imageUrl: res.imageUrl || m.imageUrl,
+              mediaUnlockKey: res.mediaUnlockKey || m.mediaUnlockKey,
+            };
+          }
+          return m;
+        }));
+      }
+      return res;
+    } catch (e) {
+      return { error: e?.message || 'Failed to unlock media' };
+    }
+  };
+
   const handleTypingStart = () => {
     if (socketRef.current && chatroomId) {
       socketRef.current.emit('typingStart', { chatroomId });
@@ -355,7 +418,10 @@ function SavedConversationChat({ conversation, googleUser, userProfile, onClose 
           onReact={handleHeartReaction}
           onSendMessage={handleSendMessage}
           onSendImage={handleSendImage}
+          onSendMedia={handleSendMedia}
+          onUnlockMedia={handleUnlockMedia}
           canGift={canGift}
+          canLockMedia={canGift}
           walletBalance={walletBalance}
           onSendGift={handleSendGift}
           onTypingStart={handleTypingStart}

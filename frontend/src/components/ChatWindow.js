@@ -4,11 +4,12 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
-import { Send, X, User, GraduationCap, Venus, Mars, Transgender, MoreVertical, Forward, Image as ImageIcon, Heart, MessageCircle, Bookmark, Clock, Check, ArrowLeft, Gift } from 'lucide-react';
+import { Send, X, User, GraduationCap, Venus, Mars, Transgender, MoreVertical, Forward, Image as ImageIcon, Heart, MessageCircle, Bookmark, Clock, Check, ArrowLeft, Gift, Video, Lock, LockOpen, Coins } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { getAvatarUrl, getDisplayName, getFlagUrl } from '../utils/conversationHelpers';
 import { getAppSettings, CHAT_THEMES, FONT_SIZE_CLASSES } from '../utils/appSettings';
 import GiftPicker from './GiftPicker';
+import MediaLockDialog from './MediaLockDialog';
 import { getGift } from '../utils/giftCatalog';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3000';
@@ -48,8 +49,11 @@ function ChatWindow({
   onReact,
   onSendMessage,
   onSendImage,
+  onSendMedia,
+  onUnlockMedia,
   onSendGift,
   canGift = false,
+  canLockMedia = false,
   walletBalance = null,
   onTypingStart,
   onTypingStop,
@@ -64,6 +68,11 @@ function ChatWindow({
   const [showGiftPicker, setShowGiftPicker] = useState(false);
   const [sendingGiftKey, setSendingGiftKey] = useState(null);
   const [giftError, setGiftError] = useState('');
+  const [pendingMedia, setPendingMedia] = useState(null);
+  const [showMediaLock, setShowMediaLock] = useState(false);
+  const [unlockingKey, setUnlockingKey] = useState(null);
+  const [unlockError, setUnlockError] = useState(null);
+  const [pendingUnlock, setPendingUnlock] = useState(null);
   const messagesEndRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -110,60 +119,128 @@ function ChatWindow({
     }
   };
 
-  const handleImageUpload = async (e) => {
+  const uploadMedia = async (file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await axios.post(`${API_URL}/upload/media`, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
+  };
+
+  const handleFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
+    const mediaType = file.type.startsWith('video/') ? 'video' : 'image';
+
     // Validate file type
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    const allowedTypes = [
+      'image/jpeg', 'image/png', 'image/gif', 'image/webp',
+      'video/mp4', 'video/webm', 'video/quicktime',
+    ];
     if (!allowedTypes.includes(file.type)) {
-      alert('Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed.');
+      alert('Invalid file type. Only JPEG, PNG, GIF, WebP, MP4, WebM, and QuickTime are allowed.');
       return;
     }
 
-    // Validate file size (max 5MB)
-    const maxSize = 5 * 1024 * 1024;
+    // Validate file size
+    const maxSize = mediaType === 'video' ? 50 * 1024 * 1024 : 8 * 1024 * 1024;
     if (file.size > maxSize) {
-      alert('File size exceeds 5MB limit');
+      alert(mediaType === 'video' ? 'File size exceeds 50MB limit' : 'File size exceeds 8MB limit');
+      return;
+    }
+
+    if (canLockMedia && chatroomId) {
+      setPendingMedia({ file, mediaType });
+      setShowMediaLock(true);
       return;
     }
 
     setUploadingImage(true);
 
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-
-      const response = await axios.post(`${API_URL}/upload/image`, formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
+      const data = await uploadMedia(file);
+      await onSendMedia?.({
+        imageUrl: data.url,
+        previewUrl: data.previewUrl,
+        type: data.type || mediaType,
+        replyTo: replyingTo ? {
+          id: replyingTo.id,
+          content: replyingTo.content,
+          senderId: replyingTo.senderId,
+        } : null,
       });
-
-      const imageUrl = response.data.url;
-
-      // Send image message
-      if (chatroomId) {
-        await onSendImage?.({
-          imageUrl,
-          replyTo: replyingTo ? {
-            id: replyingTo.id,
-            content: replyingTo.content,
-            senderId: replyingTo.senderId,
-          } : null,
-        });
-      }
-
       setReplyingTo(null);
     } catch (error) {
-      console.error('[ChatWindow] Error uploading image:', error);
-      alert('Failed to upload image. Please try again.');
+      console.error('[ChatWindow] Error uploading media:', error);
+      alert('Failed to upload media. Please try again.');
     } finally {
       setUploadingImage(false);
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
     }
+  };
+
+  const handleMediaLockChoice = async (choice) => {
+    const { file, mediaType } = pendingMedia || {};
+    if (!file) return;
+    setPendingMedia(null);
+    setShowMediaLock(false);
+
+    setUploadingImage(true);
+    try {
+      const data = await uploadMedia(file);
+      await onSendMedia?.({
+        imageUrl: data.url,
+        previewUrl: data.previewUrl,
+        type: data.type || mediaType,
+        mediaPrice: choice.mode === 'locked' ? choice.items : undefined,
+        replyTo: replyingTo ? {
+          id: replyingTo.id,
+          content: replyingTo.content,
+          senderId: replyingTo.senderId,
+        } : null,
+      });
+      setReplyingTo(null);
+    } catch (error) {
+      console.error('[ChatWindow] Error uploading locked media:', error);
+      alert('Failed to upload media. Please try again.');
+    } finally {
+      setUploadingImage(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleUnlock = async (message) => {
+    if (!onUnlockMedia || unlockingKey) return;
+    setUnlockingKey(message.id);
+    setUnlockError(null);
+    try {
+      const res = await onUnlockMedia(message.id);
+      if (res?.error) {
+        setUnlockError({ id: message.id, message: res.error });
+        setTimeout(() => setUnlockError(null), 4000);
+      }
+    } catch (error) {
+      console.error('[ChatWindow] Error unlocking media:', error);
+      setUnlockError({ id: message.id, message: 'Failed to unlock media. Please try again.' });
+      setTimeout(() => setUnlockError(null), 4000);
+    } finally {
+      setUnlockingKey(null);
+    }
+  };
+
+  const confirmUnlock = async () => {
+    const message = pendingUnlock;
+    if (!message) return;
+    setPendingUnlock(null);
+    await handleUnlock(message);
   };
 
   const handleTypingStart = () => {
@@ -637,15 +714,122 @@ function ChatWindow({
                               <p className="truncate">{message.replyTo.content}</p>
                             </div>
                           )}
-                          {message.type === 'image' && message.imageUrl ? (
-                            <img
-                              src={message.imageUrl}
-                              alt="Shared image"
-                              className="max-w-full rounded-lg mb-2"
-                            />
-                          ) : (
-                            <p className={cn("font-medium", FONT_SIZE_CLASSES[prefs.fontSize])}>{message.content}</p>
-                          )}
+                          {(() => {
+                            const isMediaMsg = message.type === 'image' || message.type === 'video';
+                            const isLocked = !!message.mediaPrice && !message.mediaUnlockedAt;
+                            const hasUrl = !!message.imageUrl;
+
+                            // Locked media for the recipient (URL is withheld until paid).
+                            if (isMediaMsg && isLocked && !ownMessage && !hasUrl) {
+                              const price = message.mediaPrice;
+                              const totalCoins = price?.priceCoins ?? 0;
+                              const hasPreview = message.type === 'image' && !!message.mediaPreviewUrl;
+                              return (
+                                <div className="rounded-xl overflow-hidden border-2 border-dashed border-amber-400/70 bg-amber-50/60 mb-2">
+                                  {hasPreview ? (
+                                    <div className="relative h-40 overflow-hidden">
+                                      <img
+                                        src={message.mediaPreviewUrl}
+                                        alt="Locked media preview"
+                                        className="w-full h-full object-cover scale-110 blur-xl"
+                                      />
+                                      <div className="absolute inset-0 bg-navy/30" />
+                                      <div className="absolute inset-0 flex flex-col items-center justify-center text-white gap-1.5">
+                                        <span className="w-10 h-10 rounded-full bg-white/25 backdrop-blur flex items-center justify-center">
+                                          <Lock className="w-5 h-5" />
+                                        </span>
+                                        <span className="text-xs font-semibold flex items-center gap-1">
+                                          {message.type === 'video' ? 'Video' : 'Photo'} locked
+                                        </span>
+                                        <span className="text-[10px] text-white/70">blurred preview</span>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div className="h-28 flex flex-col items-center justify-center text-navy/70 gap-1">
+                                      {message.type === 'video' ? (
+                                        <Video className="w-8 h-8 text-amber-500/70" />
+                                      ) : (
+                                        <ImageIcon className="w-8 h-8 text-amber-500/70" />
+                                      )}
+                                      <span className="text-xs font-semibold flex items-center gap-1">
+                                        <Lock className="w-3 h-3 text-amber-500" />
+                                        {message.type === 'video' ? 'Video' : 'Photo'} locked
+                                      </span>
+                                    </div>
+                                  )}
+                                  <div className="bg-white/90 px-3 py-2">
+                                    <div className="flex flex-wrap gap-1 items-center mb-2">
+                                      {(price?.items || []).map((it) => (
+                                        <span key={it.key} className="inline-flex items-center gap-0.5 bg-white border border-navy/10 rounded-full px-2 py-0.5 text-[11px] font-medium text-navy">
+                                          <span>{getGift(it.key)?.emoji}</span> {it.qty}x
+                                        </span>
+                                      ))}
+                                      <span className="inline-flex items-center gap-1 bg-amber-400 text-white rounded-full px-2 py-0.5 text-[11px] font-bold">
+                                        {totalCoins} coins
+                                      </span>
+                                    </div>
+                                    <Button
+                                      size="sm"
+                                      disabled={unlockingKey === message.id}
+                                      onClick={() => setPendingUnlock(message)}
+                                      className="w-full bg-gradient-to-r from-coral to-softPurple hover:from-coral/90 hover:to-softPurple/90"
+                                    >
+                                      {unlockingKey === message.id ? (
+                                        <span className="inline-flex items-center gap-1">
+                                          <span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                                          Unlocking...
+                                        </span>
+                                      ) : (
+                                        <><Lock className="w-3 h-3 mr-1" /> Unlock for {totalCoins} coins</>
+                                      )}
+                                    </Button>
+                                    {unlockError?.id === message.id && (
+                                      <p className="text-xs text-red-500 mt-1.5 text-center">{unlockError.message}</p>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            }
+
+                            // Media with a URL (free, own locked media, or unlocked).
+                            if (isMediaMsg && hasUrl) {
+                              return (
+                                <div className="relative mb-2">
+                                  {message.type === 'video' ? (
+                                    <video
+                                      src={message.imageUrl}
+                                      controls
+                                      preload="metadata"
+                                      className="max-w-full max-h-80 rounded-lg"
+                                    />
+                                  ) : (
+                                    <img
+                                      src={message.imageUrl}
+                                      alt="Shared media"
+                                      className="max-w-full max-h-80 rounded-lg"
+                                    />
+                                  )}
+                                  {isLocked && (
+                                    <span className={cn(
+                                      "absolute top-2 left-2 inline-flex items-center gap-1 text-white text-[10px] font-bold px-2 py-0.5 rounded-full backdrop-blur",
+                                      ownMessage ? "bg-coral/80" : "bg-amber-500/80"
+                                    )}>
+                                      <Lock className="w-3 h-3" />
+                                      {ownMessage ? `You set ${message.mediaPrice?.priceCoins ?? 0} coins` : `${message.mediaPrice?.priceCoins ?? 0} coins`}
+                                    </span>
+                                  )}
+                                  {message.mediaPrice && message.mediaUnlockedAt && (
+                                    <span className="absolute top-2 left-2 inline-flex items-center gap-1 bg-emerald-600/80 text-white text-[10px] font-bold px-2 py-0.5 rounded-full backdrop-blur">
+                                      <LockOpen className="w-3 h-3" /> Unlocked
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            }
+
+                            // Plain text.
+                            return <p className={cn("font-medium", FONT_SIZE_CLASSES[prefs.fontSize])}>{message.content}</p>;
+                          })()}
                           {(prefs.showTimestamps !== false || (messageReactions[message.id] && messageReactions[message.id].length > 0)) && (
                           <div className="flex items-center justify-between mt-1">
                             {prefs.showTimestamps !== false ? (
@@ -796,8 +980,8 @@ function ChatWindow({
             <input
               type="file"
               ref={fileInputRef}
-              onChange={handleImageUpload}
-              accept="image/jpeg,image/png,image/gif,image/webp"
+              onChange={handleFileUpload}
+              accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/webm,video/quicktime"
               className="hidden"
             />
             <Button
@@ -806,6 +990,7 @@ function ChatWindow({
               disabled={composerDisabled}
               variant="outline"
               className="rounded-xl h-12 px-3 md:px-4 border-navy/20 text-navy hover:bg-navy/5 flex-shrink-0"
+              title={canLockMedia ? "Send photo or video (set unlock price)" : "Send photo or video"}
             >
               <ImageIcon className="w-5 h-5" />
             </Button>
@@ -856,6 +1041,94 @@ function ChatWindow({
       {giftError && showGiftPicker && (
         <div className="fixed bottom-20 left-1/2 -translate-x-1/2 bg-red-500 text-white text-sm px-4 py-2 rounded-full shadow-lg z-50">
           {giftError}
+        </div>
+      )}
+
+      {/* Media Lock Dialog */}
+      {showMediaLock && pendingMedia && (
+        <MediaLockDialog
+          mediaType={pendingMedia.mediaType}
+          onChoose={handleMediaLockChoice}
+          onClose={() => {
+            setShowMediaLock(false);
+            setPendingMedia(null);
+          }}
+        />
+      )}
+
+      {/* Unlock Confirmation Dialog */}
+      {pendingUnlock && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <Card className="bg-white rounded-2xl shadow-2xl max-w-md w-full">
+            <CardHeader className="relative pb-2">
+              <CardTitle className="text-xl font-bold text-navy flex items-center gap-2">
+                <LockOpen className="w-5 h-5 text-emerald-500" />
+                Unlock {pendingUnlock.type === 'video' ? 'video' : 'photo'}?
+              </CardTitle>
+              <p className="text-sm text-navy/60 mt-1">
+                This will be charged to your wallet. You can't undo this.
+              </p>
+              <button
+                onClick={() => setPendingUnlock(null)}
+                className="absolute top-4 right-4 p-1.5 hover:bg-navy/5 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5 text-navy/50" />
+              </button>
+            </CardHeader>
+            <CardContent>
+              {(pendingUnlock.mediaPrice?.items || []).length > 0 && (
+                <div className="flex flex-wrap gap-1.5 items-center mb-3">
+                  {(pendingUnlock.mediaPrice?.items || []).map((it) => (
+                    <span key={it.key} className="inline-flex items-center gap-0.5 bg-white border border-navy/10 rounded-full px-2 py-0.5 text-[11px] font-medium text-navy">
+                      <span>{getGift(it.key)?.emoji}</span> {it.qty}x
+                    </span>
+                  ))}
+                  <span className="inline-flex items-center gap-1 bg-amber-400 text-white rounded-full px-2 py-0.5 text-[11px] font-bold">
+                    {pendingUnlock.mediaPrice?.priceCoins ?? 0} coins
+                  </span>
+                </div>
+              )}
+              {typeof walletBalance === 'number' && (
+                <p className="text-sm text-navy/70 mb-4">
+                  <Coins className="w-4 h-4 text-amber-500 inline mr-1" />
+                  Your balance: <span className="font-semibold">{(walletBalance || 0)} coins</span>
+                </p>
+              )}
+              {pendingUnlock.mediaPreviewUrl && pendingUnlock.type !== 'video' && (
+                <img
+                  src={pendingUnlock.mediaPreviewUrl}
+                  alt="Locked media preview"
+                  className="w-full rounded-lg blur-md opacity-80 mb-4 pointer-events-none select-none"
+                />
+              )}
+              <div className="flex gap-3">
+                <Button
+                  variant="outline"
+                  onClick={() => setPendingUnlock(null)}
+                  className="flex-1 border-navy/20 text-navy hover:bg-navy/5"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={confirmUnlock}
+                  disabled={unlockingKey === pendingUnlock.id}
+                  className="flex-1 bg-gradient-to-r from-coral to-softPurple hover:from-coral/90 hover:to-softPurple/90"
+                >
+                  {unlockingKey === pendingUnlock.id ? (
+                    <span className="inline-flex items-center gap-1">
+                      <span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                      Unlocking...
+                    </span>
+                  ) : (
+                    <><Lock className="w-4 h-4 mr-1" /> Unlock for {pendingUnlock.mediaPrice?.priceCoins ?? 0} coins</>
+                  )}
+                </Button>
+              </div>
+              {unlockError?.id === pendingUnlock.id && (
+                <p className="text-xs text-red-500 mt-2 text-center">{unlockError.message}</p>
+              )}
+            </CardContent>
+          </Card>
         </div>
       )}
 

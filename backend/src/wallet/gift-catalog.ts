@@ -27,3 +27,60 @@ export const GIFT_LIST: GiftItem[] = Object.values(GIFT_CATALOG);
 export function getGift(key: string): GiftItem | undefined {
   return GIFT_CATALOG[key];
 }
+
+// A media price is a bundle of gift tiers with quantities, e.g.
+// { items: [{ key: 'trophy', qty: 1 }, { key: 'bottle', qty: 1 }] }
+// totals 5005 coins. The server always re-derives amounts from the catalog
+// (the client-supplied totals are never trusted).
+export interface MediaBundleItem {
+  key: string;
+  qty: number;
+  label: string;
+  coins: number;
+  amountMinor: number;
+  emoji: string;
+}
+
+export interface MediaBundle {
+  items: MediaBundleItem[];
+  priceCoins: number;
+  priceMinor: number;
+}
+
+export function computeBundlePrice(rawItems: Array<{ key?: string; qty?: number }> | undefined): MediaBundle {
+  if (!Array.isArray(rawItems) || rawItems.length === 0) {
+    throw new Error('A media price needs at least one gift item');
+  }
+  const items: MediaBundleItem[] = [];
+  const seen = new Set<string>();
+  let priceCoins = 0;
+  let priceMinor = 0;
+  for (const raw of rawItems) {
+    const gift = getGift(raw?.key || '');
+    const qty = Math.floor(Number(raw?.qty) || 0);
+    if (!gift || qty <= 0) {
+      throw new Error(`Unknown or invalid gift item: ${raw?.key}`);
+    }
+    if (qty > 100) {
+      throw new Error('Quantity per gift capped at 100');
+    }
+    if (seen.has(gift.key)) {
+      throw new Error(`Duplicate gift item: ${gift.key}`);
+    }
+    seen.add(gift.key);
+    items.push({
+      key: gift.key,
+      qty,
+      label: gift.label,
+      coins: gift.coins,
+      amountMinor: gift.amountMinor,
+      emoji: gift.emoji,
+    });
+    priceCoins += gift.coins * qty;
+    priceMinor += gift.amountMinor * qty;
+  }
+  if (priceMinor <= 0) {
+    throw new Error('Media price must be greater than zero');
+  }
+  return { items, priceCoins, priceMinor };
+}

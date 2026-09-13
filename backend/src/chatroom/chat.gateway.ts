@@ -16,6 +16,9 @@ import { ConversationsService } from '../conversations/conversations.service';
 import { ReconnectionService } from '../conversations/reconnection.service';
 import { WalletService } from '../wallet/wallet.service';
 import { isGuestUser } from '../auth/auth.constants';
+import { computeBundlePrice } from '../wallet/gift-catalog';
+import { walletEvents, WALLET_EVENTS } from '../wallet/wallet-events';
+import { randomUUID } from 'crypto';
 
 @WebSocketGateway({
   cors: {
@@ -42,7 +45,28 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private conversationsService: ConversationsService,
     private reconnectionService: ReconnectionService,
     private walletService: WalletService,
-  ) {}
+  ) {
+    walletEvents.on(WALLET_EVENTS.updated, (payload: { userId: string }) => {
+      this.pushWalletBalance(payload.userId);
+    });
+  }
+
+  // Fan a wallet balance change out to all live sockets of a user
+  // (dashboard top-bar preview, wallet page, chat pills …).
+  private pushWalletBalance(userId: string) {
+    if (!userId) return;
+    const sockets = this.userSockets.get(userId);
+    if (!sockets || sockets.size === 0) return;
+    this.walletService
+      .getBalance(userId)
+      .then((wallet) => {
+        const balance = typeof wallet?.balance === 'number' ? wallet.balance : null;
+        for (const sid of sockets) {
+          this.server.to(sid).emit('walletUpdated', { userId, balance });
+        }
+      })
+      .catch((e) => console.error('[WS] walletUpdated push failed:', userId, e?.message));
+  }
 
   // Helper method to get socket ID by session ID
   getSocketIdBySessionId(sessionId: string): string | undefined {
@@ -92,6 +116,54 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
 
+  // Resolve the partner (auth) of a chatroom from the viewer's session side.
+  private async resolvePartnerSession(chatroom: any, sessionId: string) {
+    const partnerMember = chatroom.members.find(
+      (m: any) => m.sessionId !== sessionId && m.leftAt === null,
+    ) || chatroom.members.find((m: any) => m.sessionId !== sessionId);
+    if (!partnerMember) return null;
+    return this.sessionService.getSession(partnerMember.sessionId).catch(() => null);
+  }
+
+  private async resolvePaidMediaForMessage(mediaPriceRaw: string | null | undefined) {
+    if (!mediaPriceRaw) return null;
+    try {
+      const parsed = JSON.parse(mediaPriceRaw);
+      return {
+        priceCoins: parsed.priceCoins,
+        priceMinor: parsed.priceMinor,
+        items: parsed.items || [],
+        sellerUserId: parsed.sellerUserId,
+        mediaType: parsed.mediaType || 'image',
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  // Live-chat history must also withhold the real URL of locked media from
+  // anyone who is not the seller and hasn't unlocked it (otherwise a recipient
+  // rejoining the room could read the URL without paying).
+  private sanitizeHistoryForViewer(messages: any[], viewerUserId?: string) {
+    return (messages || []).map((m: any) => {
+      if (!m.mediaPrice) return m;
+      const out = { ...m };
+      let mediaPrice: any = null;
+      try {
+        mediaPrice = typeof m.mediaPrice === 'string' ? JSON.parse(m.mediaPrice) : m.mediaPrice;
+      } catch {
+        mediaPrice = null;
+      }
+      out.mediaPrice = mediaPrice;
+      const viewerIsSeller = !!viewerUserId && !!mediaPrice?.sellerUserId && mediaPrice.sellerUserId === viewerUserId;
+      const alreadyUnlocked = !!m.mediaUnlockedAt;
+      if (!viewerIsSeller && !alreadyUnlocked) {
+        out.imageUrl = undefined;
+      }
+      return out;
+    });
+  }
+
   async handleConnection(client: Socket) {
     const sessionId = client.handshake.query.sessionId as string;
     console.log(`[WS] Connection attempt - Socket ID: ${client.id}, Session ID: ${sessionId}`);
@@ -121,6 +193,24 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         const sockets = this.userSockets.get(connectedSession.userId) || new Set<string>();
         sockets.add(client.id);
         this.userSockets.set(connectedSession.userId, sockets);
+      } else {
+        // Dashboard / wallet sockets may connect with a bare userId (no session)
+        // purely to receive live `walletUpdated` events.
+        const userIdQuery = client.handshake.query.userId as string | undefined;
+        if (userIdQuery) {
+          try {
+            const user = await (this.prisma as any).user.findUnique({
+              where: { id: userIdQuery },
+            });
+            if (user && !isGuestUser(user)) {
+              const sockets = this.userSockets.get(userIdQuery) || new Set<string>();
+              sockets.add(client.id);
+              this.userSockets.set(userIdQuery, sockets);
+            }
+          } catch (e: any) {
+            console.error('[WS] Failed to register userId socket:', e?.message);
+          }
+        }
       }
 
       // Join the user's chatroom if they have one
@@ -140,7 +230,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         console.log(`[WS] User ${sessionId} joined chatroom: ${chatroom.id}`);
         
         // Send existing messages to the reconnected user
-        const messages = await this.chatroomService.getChatroomMessages(chatroom.id);
+        const messages = this.sanitizeHistoryForViewer(
+          await this.chatroomService.getChatroomMessages(chatroom.id),
+          session.userId,
+        );
         console.log(`[WS] Sending message history to reconnected user:`, messages.length, 'messages');
         client.emit('messageHistory', messages);
 
@@ -157,7 +250,26 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         }
       }
     } else {
-      console.log(`[WS] Connection rejected - No session ID provided`);
+      // Dashboard / wallet sockets may connect with a bare userId (no session)
+      // purely to receive live `walletUpdated` events.
+      const userIdQuery = client.handshake.query.userId as string | undefined;
+      if (userIdQuery) {
+        try {
+          const user = await (this.prisma as any).user.findUnique({
+            where: { id: userIdQuery },
+          });
+          if (user && !isGuestUser(user)) {
+            const sockets = this.userSockets.get(userIdQuery) || new Set<string>();
+            sockets.add(client.id);
+            this.userSockets.set(userIdQuery, sockets);
+            console.log(`[WS] Registered bare userId socket ${client.id} for ${userIdQuery}`);
+          }
+        } catch (e: any) {
+          console.error('[WS] Failed to register userId socket:', e?.message);
+        }
+      } else {
+        console.log(`[WS] Connection rejected - No session ID provided`);
+      }
     }
   }
 
@@ -276,7 +388,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     console.log(`[WS] Socket rooms after join:`, client.rooms);
     
     // Send existing messages to the newly joined user
-    const messages = await this.chatroomService.getChatroomMessages(payload.chatroomId);
+    const messages = this.sanitizeHistoryForViewer(
+      await this.chatroomService.getChatroomMessages(payload.chatroomId),
+      (await this.sessionService.getSession(sessionId))?.userId,
+    );
     console.log(`[WS] Sending message history to socket ${client.id}:`, messages.length, 'messages');
     client.emit('messageHistory', messages);
     
@@ -292,7 +407,16 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @SubscribeMessage('sendMessage')
   async handleMessage(
     client: Socket,
-    payload: { chatroomId: string; content: string; type?: string; imageUrl?: string; replyTo?: any; conversationId?: string },
+    payload: {
+      chatroomId: string;
+      content: string;
+      type?: string;
+      imageUrl?: string;
+      replyTo?: any;
+      conversationId?: string;
+      mediaPrice?: Array<{ key: string; qty: number }>;
+      mediaPreviewUrl?: string | null;
+    },
   ) {
     const sessionId = this.userSessions.get(client.id);
     console.log(`[WS] sendMessage - Socket: ${client.id}, Session: ${sessionId}, Payload:`, payload);
@@ -313,6 +437,43 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
     console.log(`[WS] Creating message with senderId: ${sessionId}`);
+
+    // Paid media (photo/video unlocked by a recipient) — AUTH <-> AUTH only.
+    let mediaPriceJson: string | null = null;
+    let mediaUnlockKey: string | null = null;
+    const isMediaPayload = payload.type === 'image' || payload.type === 'video';
+    if (isMediaPayload && payload.mediaPrice) {
+      const chatroom = await this.chatroomService.getChatroom(payload.chatroomId);
+      const senderSession: any = await this.sessionService.getSession(sessionId);
+      const senderUserId = senderSession?.userId as string | undefined;
+      const isSenderAuth = !!senderUserId && !isGuestUser(senderSession?.user);
+      const partnerSession = chatroom
+        ? await this.resolvePartnerSession(chatroom, sessionId)
+        : null;
+      const isPartnerAuth = !!partnerSession?.userId && !isGuestUser(partnerSession?.user);
+
+      if (!isSenderAuth) {
+        return { error: 'Paid media is only available for authenticated users' };
+      }
+      if (!partnerSession || !isPartnerAuth) {
+        return { error: 'Paid media is only available between authenticated users' };
+      }
+
+      try {
+        const bundle = computeBundlePrice(payload.mediaPrice);
+        mediaPriceJson = JSON.stringify({
+          items: bundle.items,
+          priceCoins: bundle.priceCoins,
+          priceMinor: bundle.priceMinor,
+          sellerUserId: senderUserId,
+          mediaType: payload.type,
+        });
+        mediaUnlockKey = randomUUID();
+      } catch (priceError: any) {
+        return { error: priceError?.message || 'Invalid media price' };
+      }
+    }
+
 // replyToId must reference a live Message row; ids coming from saved
 // conversation history (SavedMessage ids) are kept for display only.
     let replyToId = payload.replyTo?.id;
@@ -331,6 +492,9 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       imageUrl: payload.imageUrl,
       type: payload.type || 'text',
       replyToId,
+      mediaPrice: mediaPriceJson,
+      mediaUnlockKey,
+      mediaPreviewUrl: payload.mediaPreviewUrl || null,
     });
 
     // Get sender session to include username
@@ -347,11 +511,31 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     console.log(`[WS] Message senderId in created message: ${messageWithUsername.senderId}`);
     console.log(`[WS] Broadcasting message to room ${roomName} (excluding sender)`);
 
-    // Broadcast message to all users in the chatroom except sender
-    this.server.to(roomName).except(client.id).emit('newMessage', messageWithUsername);
-
-    // Emit to the sender for immediate feedback
-    client.emit('newMessage', messageWithUsername);
+    // Locked media: withhold the URL from everyone except the sender so the
+    // real photo/video is only revealed after a recipient unlocks it.
+    if (mediaPriceJson) {
+      const parsedBundle = JSON.parse(mediaPriceJson);
+      const partnerView = {
+        ...messageWithUsername,
+        imageUrl: undefined,
+        mediaPrice: parsedBundle,
+        mediaUnlockKey,
+        mediaUnlockedAt: null,
+        mediaPreviewUrl: payload.mediaPreviewUrl || (messageWithUsername as any).mediaPreviewUrl || null,
+      };
+      this.server.to(roomName).except(client.id).emit('newMessage', partnerView);
+      client.emit('newMessage', {
+        ...messageWithUsername,
+        mediaPrice: parsedBundle,
+        mediaUnlockKey,
+        mediaUnlockedAt: null,
+      });
+    } else {
+      // Broadcast message to all users in the chatroom except sender
+      this.server.to(roomName).except(client.id).emit('newMessage', messageWithUsername);
+      // Emit to the sender for immediate feedback
+      client.emit('newMessage', messageWithUsername);
+    }
 
     // Clear typing status for this user after sending a message
     const typingSet = this.typingUsers.get(payload.chatroomId);
@@ -391,6 +575,9 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
             imageUrl: payload.imageUrl,
             type: payload.type || 'text',
             replyToId: savedReplyToId,
+            mediaPrice: mediaPriceJson || undefined,
+            mediaUnlockKey: mediaUnlockKey || undefined,
+            mediaPreviewUrl: payload.mediaPreviewUrl || null,
           }],
         );
         const firstSavedId = appendResult?.savedIds?.[0];
@@ -403,6 +590,147 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
     return { success: true, message };
+  }
+
+  @SubscribeMessage('unlockMedia')
+  async handleUnlockMedia(
+    client: Socket,
+    payload: { chatroomId?: string; conversationId?: string; messageId: string; idempotencyKey?: string },
+  ) {
+    const sessionId = this.userSessions.get(client.id);
+    console.log('[WS] unlockMedia - Socket:', client.id, 'Session:', sessionId, 'Message:', payload?.messageId);
+
+    if (!sessionId) {
+      return { error: 'No session found' };
+    }
+
+    try {
+      const currentSession: any = await this.sessionService.getSession(sessionId);
+      if (!currentSession) {
+        return { error: 'Session not found' };
+      }
+      const buyerUserId = currentSession.userId as string | undefined;
+      const isBuyerAuth = !!buyerUserId && !isGuestUser(currentSession.user);
+      if (!isBuyerAuth) {
+        return { error: 'Only authenticated users can unlock media' };
+      }
+
+      // Resolve the media message (live Message or saved SavedMessage).
+      let target: any = await (this.prisma as any).message.findUnique({
+        where: { id: payload.messageId },
+      }).catch(() => null);
+      let isSaved = false;
+      if (!target) {
+        target = await (this.prisma as any).savedMessage.findUnique({
+          where: { id: payload.messageId },
+        }).catch(() => null);
+        isSaved = true;
+      }
+      if (!target || !target.mediaPrice) {
+        return { error: 'Paid media message not found' };
+      }
+
+      const media = await this.resolvePaidMediaForMessage(target.mediaPrice);
+      if (!media) {
+        return { error: 'Invalid media metadata' };
+      }
+      const sellerUserId = media.sellerUserId as string | undefined;
+      if (!sellerUserId) {
+        return { error: 'Media seller unknown' };
+      }
+      if (buyerUserId === sellerUserId) {
+        return { error: 'You own this media' };
+      }
+
+      // Already unlocked → idempotent success, no charge.
+      if (target.mediaUnlockedAt) {
+        return {
+          success: true,
+          mediaUnlockKey: target.mediaUnlockKey,
+          imageUrl: target.imageUrl,
+          mediaType: media.mediaType,
+          url: target.imageUrl,
+          alreadyUnlocked: true,
+        };
+      }
+
+      // Purchase: debit buyer, credit seller (both wallets must be active).
+      await this.walletService.purchaseMedia(
+        buyerUserId as string,
+        sellerUserId,
+        media.priceMinor,
+        {
+          bundle: { priceCoins: media.priceCoins, items: media.items },
+          mediaLabel: media.mediaType === 'video' ? 'a video' : 'a photo',
+        },
+        payload.idempotencyKey,
+      );
+
+      const now = new Date();
+      const unlockKey = target.mediaUnlockKey as string | undefined;
+      const imageUrl = target.imageUrl;
+
+      // Mark unlocked on all copies sharing the same mediaUnlockKey.
+      if (unlockKey) {
+        await (this.prisma as any).message.updateMany({
+          where: { mediaUnlockKey: unlockKey },
+          data: { mediaUnlockedAt: now },
+        });
+        await (this.prisma as any).savedMessage.updateMany({
+          where: { mediaUnlockKey: unlockKey },
+          data: { mediaUnlockedAt: now },
+        });
+      } else {
+        if (isSaved) {
+          await (this.prisma as any).savedMessage.update({
+            where: { id: target.id },
+            data: { mediaUnlockedAt: now },
+          });
+        } else {
+          await (this.prisma as any).message.update({
+            where: { id: target.id },
+            data: { mediaUnlockedAt: now },
+          });
+        }
+      }
+
+      // Notify everyone in the live chatroom (if any) + the partner's sockets.
+      const unlockEvent = {
+        messageId: payload.messageId,
+        mediaUnlockKey: unlockKey,
+        imageUrl,
+        mediaType: media.mediaType,
+        mediaUnlockedAt: now.toISOString(),
+        buyerUserId,
+        sellerUserId,
+        buyerSessionId: sessionId,
+      };
+      if (payload.chatroomId) {
+        const roomName = `chatroom:${payload.chatroomId}`;
+        if (client.rooms.has(roomName)) {
+          this.server.to(roomName).emit('mediaUnlocked', unlockEvent);
+        } else {
+          this.server.to(roomName).emit('mediaUnlocked', unlockEvent);
+        }
+      }
+      if (payload.conversationId) {
+        client.to(`conversation:${payload.conversationId}`).emit('mediaUnlocked', unlockEvent);
+        const sockets = this.userSockets.get(sellerUserId);
+        if (sockets) {
+          for (const sid of sockets) {
+            this.server.to(sid).emit('mediaUnlocked', unlockEvent);
+          }
+        }
+      }
+      // The buyer's own copy unlocks immediately.
+      client.emit('mediaUnlocked', unlockEvent);
+
+      const wallet = await this.walletService.getBalance(buyerUserId as string);
+      return { success: true, ...unlockEvent, balance: wallet.balance };
+    } catch (error: any) {
+      console.error('[WS] Error unlocking media:', error);
+      return { error: error.message || 'Failed to unlock media' };
+    }
   }
 
   @SubscribeMessage('sendGift')
@@ -712,6 +1040,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       imageUrl?: string;
       type?: string;
       replyToId?: string;
+      mediaPrice?: any;
+      mediaUnlockKey?: string;
+      mediaUnlockedAt?: string | null;
+      mediaPreviewUrl?: string | null;
     }>;
   }) {
     const sessionId = this.userSessions.get(client.id);
@@ -737,7 +1069,20 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       if (isCurrentAuth && !isPartnerAuth) {
         // AUTH <-> UNAUTH: Auto-save directly via conversations service
         console.log('[WS] Auto-saving conversation (auth to unauth)');
-        
+
+        const normalizedMessages = (payload.messages || []).map((m) => ({
+          senderId: m.senderId,
+          senderUsername: m.senderUsername,
+          content: m.content,
+          imageUrl: m.imageUrl,
+          type: m.type,
+          replyToId: m.replyToId,
+          mediaPrice: m.mediaPrice ? (typeof m.mediaPrice === 'string' ? m.mediaPrice : JSON.stringify(m.mediaPrice)) : undefined,
+          mediaUnlockKey: m.mediaUnlockKey,
+          mediaUnlockedAt: m.mediaUnlockedAt ? new Date(m.mediaUnlockedAt) : undefined,
+          mediaPreviewUrl: m.mediaPreviewUrl,
+        }));
+
         const conversationData = {
           userId: currentSession.userId,
           title: `Chat with ${payload.partnerUsername || 'Anonymous'}`,
@@ -745,7 +1090,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           partnerInfo: payload.partnerInfo,
           partnerUserId: payload.partnerUserId,
           partnerGuestId: payload.partnerGuestId,
-          messages: payload.messages,
+          messages: normalizedMessages,
         };
 
         const result = await this.conversationsService.saveConversation(currentSession.userId, conversationData);
@@ -761,6 +1106,20 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       } else {
         // AUTH <-> AUTH: Use save offer system
         console.log('[WS] Creating save offer (auth to auth)');
+
+        const normalizedMessages = (payload.messages || []).map((m) => ({
+          senderId: m.senderId,
+          senderUsername: m.senderUsername,
+          content: m.content,
+          imageUrl: m.imageUrl,
+          type: m.type,
+          replyToId: m.replyToId,
+          mediaPrice: m.mediaPrice ? (typeof m.mediaPrice === 'string' ? m.mediaPrice : JSON.stringify(m.mediaPrice)) : undefined,
+          mediaUnlockKey: m.mediaUnlockKey,
+          mediaUnlockedAt: m.mediaUnlockedAt ? new Date(m.mediaUnlockedAt) : undefined,
+          mediaPreviewUrl: m.mediaPreviewUrl,
+        }));
+
         const result = await this.saveOfferService.offerToSaveConversation({
           userId: currentSession.userId,
           guestId: currentSession.userId ? undefined : sessionId,
@@ -768,7 +1127,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           partnerGuestId: payload.partnerGuestId,
           partnerUsername: payload.partnerUsername,
           partnerInfo: payload.partnerInfo,
-          messages: payload.messages,
+          messages: normalizedMessages,
         });
 
         // Notify the partner about the save offer
@@ -1089,6 +1448,23 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const byId = new Map<string, any>(saved.map((m: any) => [m.id, m]));
       const messages = saved.map((m: any) => {
         const replied = m.replyToId ? byId.get(m.replyToId) : null;
+        let imageUrl = m.imageUrl;
+        let mediaPrice: any = null;
+        let mediaUnlockKey = m.mediaUnlockKey || null;
+        if (m.mediaPrice) {
+          try {
+            mediaPrice = JSON.parse(m.mediaPrice);
+          } catch {
+            mediaPrice = null;
+          }
+          // Locked media: only the seller and users who already unlocked it
+          // get the real URL. Everyone else sees the lock state.
+          const viewerIsSeller = !!myUserId && mediaPrice?.sellerUserId === myUserId;
+          const unlocked = !!m.mediaUnlockedAt;
+          if (!viewerIsSeller && !unlocked) {
+            imageUrl = undefined;
+          }
+        }
         return {
           id: m.id,
           chatroomId,
@@ -1096,8 +1472,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           senderId: m.senderId,
           senderUsername: m.senderUsername,
           content: m.content,
-          imageUrl: m.imageUrl,
+          imageUrl,
           type: m.type || 'text',
+          mediaPrice,
+          mediaUnlockKey,
+          mediaUnlockedAt: m.mediaUnlockedAt,
+          mediaPreviewUrl: m.mediaPreviewUrl || null,
           replyTo: replied
             ? { id: replied.id, content: replied.content, senderId: replied.senderId }
             : null,

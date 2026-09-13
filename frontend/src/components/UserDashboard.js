@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
+import io from 'socket.io-client';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
@@ -54,6 +55,15 @@ function UserDashboard({ googleUser, onLogout, onStartChat, onOpenSettings, onOp
       .finally(() => { if (!cancelled) setWalletLoading(false); });
     return () => { cancelled = true; };
   }, [googleUser?.id, refreshSignal]);
+
+  useEffect(() => {
+    if (!googleUser?.id) return;
+    const socket = io(API_URL, { query: { userId: googleUser.id } });
+    socket.on('walletUpdated', (data) => {
+      if (typeof data?.balance === 'number') setWalletBalance(data.balance);
+    });
+    return () => { socket.disconnect(); };
+  }, [googleUser?.id]);
 
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -443,14 +453,14 @@ function UserDashboard({ googleUser, onLogout, onStartChat, onOpenSettings, onOp
                 <Plus className="w-4 h-4 mr-2" />
                 Start New Chat
               </Button>
-              <Button
+              {/* <Button
                 onClick={loadReconnectableConversations}
                 variant="outline"
                 className="flex items-center gap-2 ml-2"
               >
                 <RefreshCw className="w-4 h-4" />
                 <span>Refresh</span>
-              </Button>
+              </Button> */}
             </div>
           </div>
         )}

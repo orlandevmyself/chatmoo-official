@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaService } from '../prisma/prisma.service';
 import { getPaymentProvider } from './payment-providers';
 import { getGift } from './gift-catalog';
+import { emitWalletUpdated } from './wallet-events';
 
 // Demo guardrails (minor units = centavos). Real limits/fees/KYC tiers belong
 // to the licensed production configuration, not here.
@@ -9,6 +10,15 @@ const MIN_DEPOSIT_MINOR = 2000; // ₱20
 const MIN_WITHDRAW_MINOR = 5000; // ₱50
 const MAX_TX_MINOR = 5000000; // ₱50,000
 const ALLOWED_METHODS = ['gcash', 'maya', 'card', 'bank'];
+
+// Withdrawable fraction of the wallet balance (default 80%, override via env).
+const DEFAULT_WITHDRAWABLE_PERCENT = 80;
+
+function withdrawablePercent() {
+  const raw = Number(process.env.WITHDRAWABLE_PERCENT);
+  if (!Number.isFinite(raw)) return DEFAULT_WITHDRAWABLE_PERCENT;
+  return Math.min(100, Math.max(1, Math.round(raw)));
+}
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -52,7 +62,14 @@ export class WalletService {
   async getBalance(userId: string) {
     if (!userId) throw new BadRequestException('userId is required');
     const wallet = await this.getOrCreateWallet(userId);
-    return { balance: wallet.balance, currency: wallet.currency, status: wallet.status };
+    const withdrawableMinor = Math.floor((wallet.balance * withdrawablePercent()) / 100);
+    return {
+      balance: wallet.balance,
+      currency: wallet.currency,
+      status: wallet.status,
+      withdrawablePercent: withdrawablePercent(),
+      withdrawableMinor,
+    };
   }
 
   async listTransactions(userId: string, query: {
@@ -65,9 +82,11 @@ export class WalletService {
     const page = Math.max(1, Number(query.page) || 1);
     const limit = Math.min(50, Math.max(1, Number(query.limit) || 20));
     const where: any = { userId };
-    if (['deposit', 'withdraw', 'gift', 'gift_send', 'gift_receive'].includes(query.type || '')) {
+    if (['deposit', 'withdraw', 'gift', 'gift_send', 'gift_receive', 'media', 'media_send', 'media_receive'].includes(query.type || '')) {
       if (query.type === 'gift') {
         where.type = { in: ['gift_send', 'gift_receive'] };
+      } else if (query.type === 'media') {
+        where.type = { in: ['media_send', 'media_receive'] };
       } else {
         where.type = query.type;
       }
@@ -176,6 +195,7 @@ export class WalletService {
         return 1;
       });
       console.log('[WalletService] Deposit settled:', txId, 'credited:', moved === 1);
+      emitWalletUpdated(tx.userId);
     } catch (e: any) {
       console.error('[WalletService] Deposit settlement failed:', txId, e?.message);
       await (this.prisma as any).walletTransaction.updateMany({
@@ -200,6 +220,19 @@ export class WalletService {
     const quote = provider.quote('withdraw', data.amountMinor, data.method);
     const total = data.amountMinor + quote.feeMinor;
 
+    // Withdrawals are capped at a configurable % of the current balance so a
+    // share of the wallet always stays reserved on the platform.
+    const pct = withdrawablePercent();
+    const balanceInfo = await this.getBalance(userId);
+    const cap = balanceInfo.withdrawableMinor;
+    if (total > cap) {
+      throw new BadRequestException(
+        `Withdrawals are limited to ${pct}% of your balance. Max withdrawable now: ₱${(cap / 100).toFixed(2)}`,
+      );
+    }
+    // Atomic reservation: also refuses to pierce the % hold under concurrency.
+    const requiredBalance = Math.ceil((total * 100) / pct);
+
     try {
       const tx = await (this.prisma as any).$transaction(async (t: any) => {
         const wallet = await t.wallet.upsert({
@@ -212,7 +245,7 @@ export class WalletService {
         }
         // Atomic reservation: only debits when funds cover it.
         const reserved = await t.wallet.updateMany({
-          where: { id: wallet.id, balance: { gte: total } },
+          where: { id: wallet.id, balance: { gte: requiredBalance } },
           data: { balance: { decrement: total } },
         });
         if (reserved.count === 0) {
@@ -237,6 +270,7 @@ export class WalletService {
 
       // Settle asynchronously (demo: short delay, then release to provider).
       void this.settleWithdraw(tx.id, quote.etaSeconds);
+      emitWalletUpdated(userId); // funds were reserved (balance already changed)
       return this.toClient(tx);
     } catch (e: any) {
       if (e?.code === 'P2002' && data.idempotencyKey) {
@@ -275,6 +309,7 @@ export class WalletService {
           where: { id: tx.walletId },
           data: { balance: { increment: tx.amount + tx.fee } },
         });
+        emitWalletUpdated(tx.userId);
       });
     }
   }
@@ -363,6 +398,8 @@ export class WalletService {
       });
 
       console.log('[WalletService] Gift sent:', gift.key, gift.coins, 'coins from', senderUserId, 'to', recipientUserId);
+      emitWalletUpdated(senderUserId);
+      emitWalletUpdated(recipientUserId);
       return result;
     } catch (e: any) {
       if (e?.code === 'P2002' && idempotencyKey) {
@@ -381,5 +418,112 @@ export class WalletService {
   async getGiftsCatalog() {
     const { GIFT_LIST } = await import('./gift-catalog');
     return GIFT_LIST;
+  }
+
+  // Paid media unlock: AUTH -> AUTH only. Atomic debit of the buyer's wallet
+  // and credit of the seller's wallet for the media bundle price.
+  // WalletTransaction rows media_send (buyer) / media_receive (seller)
+  // show up in both wallet histories. Idempotent via idempotencyKey.
+  async purchaseMedia(
+    buyerUserId: string,
+    sellerUserId: string,
+    priceMinor: number,
+    meta: { bundle: any; mediaLabel?: string },
+    idempotencyKey?: string,
+  ) {
+    if (!buyerUserId || !sellerUserId) throw new BadRequestException('buyer and seller required');
+    if (buyerUserId === sellerUserId) throw new BadRequestException('Cannot buy your own media');
+    if (!Number.isInteger(priceMinor) || priceMinor <= 0 || priceMinor > MAX_TX_MINOR) {
+      throw new BadRequestException('Invalid media price');
+    }
+
+    const bundleCoins = meta?.bundle?.priceCoins ?? Math.round(priceMinor / 100);
+
+    try {
+      const result = await (this.prisma as any).$transaction(async (t: any) => {
+        const [buyerWallet, sellerWallet] = await Promise.all([
+          t.wallet.upsert({
+            where: { userId: buyerUserId },
+            create: { userId: buyerUserId, balance: 0, currency: 'PHP', status: 'active' },
+            update: {},
+          }),
+          t.wallet.upsert({
+            where: { userId: sellerUserId },
+            create: { userId: sellerUserId, balance: 0, currency: 'PHP', status: 'active' },
+            update: {},
+          }),
+        ]);
+
+        if (buyerWallet.status !== 'active' || sellerWallet.status !== 'active') {
+          throw new BadRequestException('Wallet is frozen');
+        }
+
+        const reserved = await t.wallet.updateMany({
+          where: { id: buyerWallet.id, balance: { gte: priceMinor } },
+          data: { balance: { decrement: priceMinor } },
+        });
+        if (reserved.count === 0) {
+          throw new BadRequestException('Insufficient balance');
+        }
+
+        await t.wallet.update({
+          where: { id: sellerWallet.id },
+          data: { balance: { increment: priceMinor } },
+        });
+
+        const summary = (meta?.bundle?.items as any[] || [])
+          .map((i: any) => `${i.qty}x ${i.label}`)
+          .join(', ');
+        const mediaLabel = meta?.mediaLabel || 'media';
+
+        const buyerTx = await t.walletTransaction.create({
+          data: {
+            walletId: buyerWallet.id,
+            userId: buyerUserId,
+            type: 'media_send',
+            amount: priceMinor,
+            fee: 0,
+            status: 'completed',
+            provider: 'demo',
+            method: 'gift',
+            remarks: `Purchased ${mediaLabel} from ${sellerUserId} (${bundleCoins} coins)`,
+            idempotencyKey: idempotencyKey || undefined,
+          },
+        });
+
+        const sellerTx = await t.walletTransaction.create({
+          data: {
+            walletId: sellerWallet.id,
+            userId: sellerUserId,
+            type: 'media_receive',
+            amount: priceMinor,
+            fee: 0,
+            status: 'completed',
+            provider: 'demo',
+            method: 'gift',
+            remarks: `Earned ${bundleCoins} coins selling ${mediaLabel} to ${buyerUserId}${summary ? ` (${summary})` : ''}`,
+          },
+        });
+
+        return { buyerTx: this.toClient(buyerTx), sellerTx: this.toClient(sellerTx) };
+      });
+
+      console.log(
+        '[WalletService] Media purchased:', bundleCoins, 'coins from', buyerUserId, 'to', sellerUserId,
+      );
+      emitWalletUpdated(buyerUserId);
+      emitWalletUpdated(sellerUserId);
+      return result;
+    } catch (e: any) {
+      if (e?.code === 'P2002' && idempotencyKey) {
+        const existing = await (this.prisma as any).walletTransaction.findUnique({
+          where: { idempotencyKey },
+        });
+        if (existing) {
+          return { buyerTx: this.toClient(existing), sellerTx: null, idempotent: true };
+        }
+      }
+      throw e;
+    }
   }
 }

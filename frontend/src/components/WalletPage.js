@@ -4,7 +4,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Card } from './ui/card';
 import {
-  ArrowLeft, ArrowDownLeft, ArrowUpRight, Plus, Minus, RefreshCw, X, Wallet as WalletIcon,
+  ArrowLeft, ArrowDownLeft, ArrowUpRight, Plus, Minus, RefreshCw, X, Wallet as WalletIcon, Lock, LockOpen,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 
@@ -38,6 +38,8 @@ const newIdempotencyKey = () =>
 function WalletPage({ googleUser, onBack }) {
   const [balance, setBalance] = useState(null);
   const [currency, setCurrency] = useState('PHP');
+  const [withdrawablePercent, setWithdrawablePercent] = useState(80);
+  const [withdrawableMinor, setWithdrawableMinor] = useState(0);
   const [txs, setTxs] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -75,6 +77,8 @@ function WalletPage({ googleUser, onBack }) {
       ]);
       setBalance(balRes.data.balance);
       setCurrency(balRes.data.currency || 'PHP');
+      if (typeof balRes.data.withdrawablePercent === 'number') setWithdrawablePercent(balRes.data.withdrawablePercent);
+      if (typeof balRes.data.withdrawableMinor === 'number') setWithdrawableMinor(balRes.data.withdrawableMinor);
       setTxs(txRes.data.items || []);
       setTotal(txRes.data.total || 0);
     } catch {
@@ -152,6 +156,10 @@ function WalletPage({ googleUser, onBack }) {
       setFormError('Account name and number are required');
       return;
     }
+    if (amountMinor > withdrawableMinor) {
+      setFormError(`Amount exceeds your withdrawable limit of ${formatPHP(withdrawableMinor)} (${withdrawablePercent}% of your balance)`);
+      return;
+    }
     setSubmitting(true);
     try {
       await axios.post(`${API_URL}/wallet/withdraw`, {
@@ -203,12 +211,7 @@ function WalletPage({ googleUser, onBack }) {
           <h1 className="text-2xl md:text-3xl font-bold text-white">Wallet</h1>
         </div>
 
-        {/* Demo banner */}
-        <div className="bg-amber-100/95 border border-amber-300 rounded-xl p-3 text-xs md:text-sm text-amber-900">
-          <span className="font-semibold">Demo mode</span> — no real money moves. Deposits settle in ~2s,
-          withdrawals in ~5s. Real-money rails (e.g. PayMongo) stay disconnected until licensed.
-        </div>
-
+     
         {error && (
           <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-red-700 text-sm">
             {error}
@@ -222,6 +225,10 @@ function WalletPage({ googleUser, onBack }) {
             {loading && balance === null ? '…' : formatPHP(balance)}
           </p>
           <p className="text-xs text-navy/50 mt-1">{currency} · Demo credits</p>
+          <p className="text-xs mt-1 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1 inline-flex items-center gap-1 text-amber-700">
+            <Lock className="w-3 h-3" />
+            Withdrawable: {formatPHP(withdrawableMinor)} ({withdrawablePercent}% of balance)
+          </p>
           <div className="flex flex-col sm:flex-row gap-3 mt-4">
             <Button
               onClick={() => { setFormError(''); setShowDeposit(true); }}
@@ -454,7 +461,7 @@ function WalletPage({ googleUser, onBack }) {
                   className="rounded-xl"
                 />
                 <p className="text-xs text-navy/50">
-                  Min ₱50 · Max ₱50,000 · Available: {formatPHP(balance)}
+                  Min ₱50 · Max ₱50,000 · Withdrawable: {formatPHP(withdrawableMinor)} ({withdrawablePercent}% of balance)
                 </p>
               </div>
               <div className="space-y-2">

@@ -119,6 +119,24 @@ function ChatPage({ session, onBackToLanding }) {
       setTypingUsers(otherTypingUsers);
     });
 
+    newSocket.on('mediaUnlocked', (data) => {
+      console.log('[Frontend] Media unlocked:', data);
+      setMessages((prev) => prev.map((m) => {
+        const keyMatch = data.mediaUnlockKey && m.mediaUnlockKey === data.mediaUnlockKey;
+        if (m.id === data.messageId || keyMatch) {
+          return {
+            ...m,
+            mediaUnlockedAt: data.mediaUnlockedAt || m.mediaUnlockedAt,
+            imageUrl: data.imageUrl || m.imageUrl,
+            mediaUnlockKey: data.mediaUnlockKey || m.mediaUnlockKey,
+            mediaPrice: m.mediaPrice || undefined,
+          };
+        }
+        return m;
+      }));
+      if (typeof data.balance === 'number') setWalletBalance(data.balance);
+    });
+
     newSocket.on('saveOfferReceived', (data) => {
       console.log('[Frontend] Save offer received:', data);
       // Only show dialog for authenticated users (guests can't save)
@@ -420,6 +438,51 @@ function ChatPage({ session, onBackToLanding }) {
     }
   };
 
+  const handleSendMedia = async ({ imageUrl, previewUrl, type, mediaPrice, replyTo }) => {
+    if (socketRef.current && chatroomId) {
+      socketRef.current.emit('sendMessage', {
+        chatroomId,
+        content: '',
+        imageUrl,
+        mediaPreviewUrl: previewUrl || undefined,
+        type: type === 'video' ? 'video' : 'image',
+        replyTo: replyTo || null,
+        mediaPrice: mediaPrice || undefined,
+      });
+    }
+  };
+
+  const handleUnlockMedia = async (messageId) => {
+    if (!socketRef.current || !chatroomId) return { error: 'Not connected' };
+    const idempotencyKey = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+    try {
+      const res = await socketRef.current.emitWithAck('unlockMedia', {
+        chatroomId,
+        messageId,
+        idempotencyKey,
+      });
+      if (res?.error) return { error: res.error };
+      if (typeof res.balance === 'number') setWalletBalance(res.balance);
+      if (res.success) {
+        setMessages((prev) => prev.map((m) => {
+          const keyMatch = res.mediaUnlockKey && m.mediaUnlockKey === res.mediaUnlockKey;
+          if (m.id === res.messageId || keyMatch) {
+            return {
+              ...m,
+              mediaUnlockedAt: res.mediaUnlockedAt || m.mediaUnlockedAt,
+              imageUrl: res.imageUrl || m.imageUrl,
+              mediaUnlockKey: res.mediaUnlockKey || m.mediaUnlockKey,
+            };
+          }
+          return m;
+        }));
+      }
+      return res;
+    } catch (e) {
+      return { error: e?.message || 'Failed to unlock media' };
+    }
+  };
+
   const handleTypingStart = () => {
     if (socketRef.current && chatroomId) {
       socketRef.current.emit('typingStart', { chatroomId });
@@ -663,6 +726,10 @@ function ChatPage({ session, onBackToLanding }) {
             imageUrl: msg.imageUrl,
             type: msg.type,
             replyToId: msg.replyToId,
+            mediaPrice: msg.mediaPrice || undefined,
+            mediaUnlockKey: msg.mediaUnlockKey || undefined,
+            mediaUnlockedAt: msg.mediaUnlockedAt || undefined,
+            mediaPreviewUrl: msg.mediaPreviewUrl || undefined,
           })),
         };
 
@@ -875,7 +942,10 @@ function ChatPage({ session, onBackToLanding }) {
       onReact={handleHeartReaction}
       onSendMessage={handleSendMessage}
       onSendImage={handleSendImage}
+      onSendMedia={handleSendMedia}
+      onUnlockMedia={handleUnlockMedia}
       canGift={canGift}
+      canLockMedia={canGift}
       walletBalance={walletBalance}
       onSendGift={handleSendGift}
       onTypingStart={handleTypingStart}

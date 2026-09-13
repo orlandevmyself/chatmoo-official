@@ -78,6 +78,10 @@ export class ConversationsService {
       imageUrl?: string;
       type?: string;
       replyToId?: string;
+mediaPrice?: string;
+      mediaUnlockKey?: string;
+      mediaUnlockedAt?: Date | null;
+      mediaPreviewUrl?: string | null;
     }>;
   }) {
     console.log('[ConversationsService] Saving conversation for user:', userId);
@@ -119,6 +123,10 @@ export class ConversationsService {
                   imageUrl: msg.imageUrl,
                   type: msg.type || 'text',
                   replyToId: msg.replyToId,
+                  mediaPrice: msg.mediaPrice,
+                  mediaUnlockKey: msg.mediaUnlockKey,
+                  mediaUnlockedAt: msg.mediaUnlockedAt,
+                  mediaPreviewUrl: msg.mediaPreviewUrl,
                 })),
               },
             },
@@ -151,6 +159,10 @@ export class ConversationsService {
             imageUrl: msg.imageUrl,
             type: msg.type || 'text',
             replyToId: msg.replyToId,
+            mediaPrice: msg.mediaPrice,
+            mediaUnlockKey: msg.mediaUnlockKey,
+            mediaUnlockedAt: msg.mediaUnlockedAt,
+            mediaPreviewUrl: msg.mediaPreviewUrl,
           })),
         },
       },
@@ -215,6 +227,10 @@ export class ConversationsService {
     imageUrl?: string;
     type?: string;
     replyToId?: string;
+    mediaPrice?: string;
+    mediaUnlockKey?: string;
+    mediaUnlockedAt?: Date | null;
+    mediaPreviewUrl?: string | null;
   }>) {
     console.log('[ConversationsService] Appending', messages?.length, 'messages to conversation:', conversationId);
 
@@ -253,6 +269,10 @@ export class ConversationsService {
           imageUrl: msg.imageUrl,
           type: msg.type || 'text',
           replyToId: msg.replyToId,
+          mediaPrice: msg.mediaPrice,
+          mediaUnlockKey: msg.mediaUnlockKey,
+          mediaUnlockedAt: msg.mediaUnlockedAt,
+          mediaPreviewUrl: msg.mediaPreviewUrl,
         },
       });
       savedIds.push(created.id);

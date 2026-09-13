@@ -24,6 +24,10 @@ export class SaveOfferService {
       imageUrl?: string;
       type?: string;
       replyToId?: string;
+mediaPrice?: string;
+      mediaUnlockKey?: string;
+      mediaUnlockedAt?: Date | null;
+      mediaPreviewUrl?: string | null;
     }>;
   }) {
     console.log('[SaveOfferService] Offering to save conversation');
@@ -87,6 +91,10 @@ export class SaveOfferService {
               imageUrl: msg.imageUrl,
               type: msg.type || 'text',
               replyToId: msg.replyToId,
+              mediaPrice: (msg as any).mediaPrice,
+              mediaUnlockKey: (msg as any).mediaUnlockKey,
+              mediaUnlockedAt: (msg as any).mediaUnlockedAt,
+              mediaPreviewUrl: (msg as any).mediaPreviewUrl,
             })),
           },
         },

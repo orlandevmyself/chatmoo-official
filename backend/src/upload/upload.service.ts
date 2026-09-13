@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import sharp from 'sharp';
 
 @Injectable()
 export class UploadService {
@@ -49,6 +50,20 @@ export class UploadService {
     const random = Math.random().toString(36).substring(7);
     const extension = originalName.split('.').pop();
     return `${timestamp}-${random}.${extension}`;
+  }
+
+  // Generates a heavily blurred, low-resolution JPEG copy of an image and
+  // uploads it separately. Used as the preview for paid/locked media so the
+  // full-res URL can stay hidden until a recipient unlocks it.
+  async createBlurredPreview(file: Buffer, prefix: string): Promise<string> {
+    const processed = await sharp(file, { animated: false })
+      .resize({ width: 420, height: 420, fit: 'inside', withoutEnlargement: true })
+      .blur(12)
+      .jpeg({ quality: 45 })
+      .toBuffer();
+
+    const filename = `${prefix}-blur.jpg`;
+    return this.uploadFile(processed, filename, 'image/jpeg');
   }
 
   async deleteFile(filename: string): Promise<void> {
