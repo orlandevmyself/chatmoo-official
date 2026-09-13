@@ -25,6 +25,7 @@ model User {
   sessions    Session[]
   savedConversations SavedConversation[]
   settings    UserSettings?
+  wallet      Wallet?
   offersSent SaveOffer[] @relation("offersSent")
   offersReceived SaveOffer[] @relation("offersReceived")
 }
@@ -171,4 +172,45 @@ model UserSettings {
   statusMessage        String   @default("")
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
+}
+
+// Core wallet ledger. Amounts are integer minor units (centavos for PHP)
+// so there is never any float rounding. Never edit balances directly —
+// always go through WalletService inside a transaction.
+model Wallet {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  balance   Int      @default(0) // minor units, >= 0
+  currency  String   @default("PHP")
+  status    String   @default("active") // 'active' | 'frozen'
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  transactions WalletTransaction[]
+}
+
+model WalletTransaction {
+  id             String   @id @default(uuid())
+  walletId       String
+  wallet         Wallet   @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  userId         String
+  type           String   // 'deposit' | 'withdraw'
+  amount         Int      // minor units, > 0
+  fee            Int      @default(0) // minor units
+  status         String   @default("pending") // 'pending' | 'completed' | 'failed' | 'cancelled'
+  provider       String   @default("demo") // 'demo' | 'paymongo' | ...
+  providerRef    String?  // provider-side reference (checkout/payment/payout id)
+  method         String?  // 'gcash' | 'maya' | 'card' | 'bank' ...
+  destination    String?  // masked account for withdrawals (****1234)
+  idempotencyKey String?  @unique // client-generated UUID per submit; retries return the same row
+  remarks        String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([walletId])
+  @@index([userId])
+  @@index([type])
+  @@index([status])
+  @@index([createdAt])
 }

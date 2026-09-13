@@ -10,6 +10,7 @@ import { MatchModule } from './match/match.module';
 import { UploadModule } from './upload/upload.module';
 import { AuthModule } from './auth/auth.module';
 import { ConversationsModule } from './conversations/conversations.module';
+import { WalletModule } from './wallet/wallet.module';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { ConversationsModule } from './conversations/conversations.module';
     UploadModule,
     AuthModule,
     ConversationsModule,
+    WalletModule,
   ],
 })
 export class AppModule {}

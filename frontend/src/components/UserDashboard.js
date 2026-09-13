@@ -6,23 +6,24 @@ import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import SavedConversationChat from './SavedConversationChat';
 import { getAvatarUrl, getConversationPartner } from '../utils/conversationHelpers';
 import { getAppSettings, initAppSettings, STATUS_META } from '../utils/appSettings';
-import { 
-  Inbox, 
-  Settings, 
-  LogOut, 
-  User, 
+import {
+  Inbox,
+  Settings,
+  LogOut,
+  User,
   Search,
   Plus,
   Trash2,
   Clock,
   MessageCircle,
-  RefreshCw
+  RefreshCw,
+  Wallet,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3000';
 
-function UserDashboard({ googleUser, onLogout, onStartChat, onOpenSettings, refreshSignal }) {
+function UserDashboard({ googleUser, onLogout, onStartChat, onOpenSettings, onOpenWallet, refreshSignal }) {
   const [userProfile, setUserProfile] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [, setSettingsVersion] = useState(0);
@@ -243,6 +244,16 @@ function UserDashboard({ googleUser, onLogout, onStartChat, onOpenSettings, refr
                   >
                     <Settings className="w-4 h-4" />
                     Settings
+                  </button>
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false);
+                      onOpenWallet?.();
+                    }}
+                    className="w-full flex items-center gap-2 px-4 py-3 text-sm text-navy hover:bg-navy/5 transition-colors text-left"
+                  >
+                    <Wallet className="w-4 h-4" />
+                    Wallet
                   </button>
                   <button
                     onClick={onLogout}

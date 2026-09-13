@@ -4,6 +4,7 @@ import ChatPage from './components/ChatPage';
 import ProfileSetup from './components/ProfileSetup';
 import UserDashboard from './components/UserDashboard';
 import SettingsPage from './components/SettingsPage';
+import WalletPage from './components/WalletPage';
 import { sessionManager } from './utils/sessionManager';
 import { resetAppSettings } from './utils/appSettings';
 import './App.css';
@@ -112,12 +113,18 @@ function App() {
           }}
           onLogout={handleLogout}
         />
+      ) : currentPage === 'wallet' && googleUser ? (
+        <WalletPage
+          googleUser={googleUser}
+          onBack={() => setCurrentPage('landing')}
+        />
       ) : currentPage === 'landing' && googleUser ? (
         <UserDashboard 
           googleUser={googleUser}
           onLogout={handleLogout}
           onStartChat={handleStartChat}
           onOpenSettings={() => setCurrentPage('settings')}
+          onOpenWallet={() => setCurrentPage('wallet')}
           refreshSignal={profileTick}
         />
       ) : currentPage === 'landing' ? (
