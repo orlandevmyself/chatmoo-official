@@ -1,0 +1,33 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body,
+#root {
+  height: 100%;
+  @apply bg-cream-50;
+}
+
+body {
+  @apply text-navy;
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+/* Form inputs */
+input, textarea, select {
+  @apply border-navy/20 focus:border-coral focus:ring-coral/20;
+}
+
+/* Tables */
+table {
+  @apply border-navy/10;
+}
+
+th {
+  @apply bg-navy text-white;
+}
+
+tr:hover {
+  @apply bg-cream-100;
+}

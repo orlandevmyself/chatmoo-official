@@ -20,6 +20,9 @@ model User {
   avatar      String   @default("adventurer") // DiceBear avatar style
   avatarSeed  String?  // Seed for avatar generation
   profileComplete Boolean @default(false) // Whether user has completed profile setup
+  role        String   @default("user") // 'user' | 'admin'
+  passwordHash String? // Hashed password for admin accounts
+  banned      Boolean  @default(false) // Banned users cannot match/chat
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   sessions    Session[]
@@ -223,4 +226,31 @@ model WalletTransaction {
   @@index([type])
   @@index([status])
   @@index([createdAt])
+}
+
+// Platform-level configuration editable from the admin panel. Simple string
+// key/value; values are typed on read (admin UI + ConfigService).
+model AppConfig {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+// Gift catalog. Seeded from backend/src/wallet/gift-catalog.ts on first boot,
+// then editable from the admin panel (label, coins, minor amount, emoji, color,
+// enabled, rank). Runtime lookups use GiftService (DB-first, hardcoded fallback).
+model Gift {
+  key         String   @id
+  label       String
+  coins       Int
+  amountMinor Int
+  emoji       String
+  lucide      String
+  color       String
+  enabled     Boolean  @default(true)
+  rank        Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([enabled])
 }

@@ -8,7 +8,6 @@ import SavedConversationChat from './SavedConversationChat';
 import { getAvatarUrl, getConversationPartner } from '../utils/conversationHelpers';
 import { getAppSettings, initAppSettings, STATUS_META } from '../utils/appSettings';
 import {
-  Inbox,
   Settings,
   LogOut,
   User,
@@ -22,6 +21,7 @@ import {
   Coins,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { useNavigate, useParams } from 'react-router-dom';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3000';
 
@@ -29,6 +29,8 @@ const formatPHP = (minor) =>
   new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format((minor || 0) / 100);
 
 function UserDashboard({ googleUser, onLogout, onStartChat, onOpenSettings, onOpenWallet, refreshSignal }) {
+  const navigate = useNavigate();
+  const { conversationId } = useParams();
   const [userProfile, setUserProfile] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [walletBalance, setWalletBalance] = useState(null);
@@ -169,6 +171,7 @@ function UserDashboard({ googleUser, onLogout, onStartChat, onOpenSettings, onOp
       setConversations(conversations.filter(c => c.id !== conversationId));
       if (selectedConversation?.id === conversationId) {
         setSelectedConversation(null);
+        navigate('/');
       }
     } catch (error) {
       console.error('[UserDashboard] Error deleting conversation:', error);
@@ -176,22 +179,43 @@ function UserDashboard({ googleUser, onLogout, onStartChat, onOpenSettings, onOp
     }
   };
 
-  const handleSelectConversation = async (conversation) => {
-    try {
-      const response = await axios.get(`${API_URL}/conversations/${conversation.id}?userId=${googleUser.id}`);
-      setSelectedConversation(response.data);
-      console.log('[UserDashboard] Loaded full conversation:', response.data);
-    } catch (error) {
-      console.error('[UserDashboard] Error loading conversation details:', error);
-      setError('Failed to load conversation details');
-    }
+  const handleSelectConversation = (conversation) => {
+    navigate(`/conversations/${conversation.id}`);
   };
 
   const handleCloseChat = () => {
     setSelectedConversation(null);
+    navigate('/');
     loadConversations();
     loadReconnectableConversations();
   };
+
+  // URL-driven: /conversations/:id loads that conversation; no param → empty inbox
+  useEffect(() => {
+    if (!googleUser?.id) return;
+    let cancelled = false;
+    if (conversationId) {
+      axios.get(`${API_URL}/conversations/${conversationId}?userId=${googleUser.id}`)
+        .then((res) => {
+          if (!cancelled) {
+            setSelectedConversation(res.data);
+            console.log('[UserDashboard] Loaded conversation from URL:', res.data);
+          }
+        })
+        .catch((error) => {
+          console.error('[UserDashboard] Error loading conversation from URL:', error);
+          if (!cancelled) {
+            setSelectedConversation(null);
+            setError('Failed to load conversation.');
+            navigate('/');
+          }
+        });
+    } else {
+      setSelectedConversation(null);
+    }
+    return () => { cancelled = true; };
+    // eslint-disable-next-line
+  }, [conversationId, googleUser?.id]);
 
   const filteredConversations = conversations.filter(conv => {
     const q = searchQuery.toLowerCase();
@@ -443,7 +467,11 @@ function UserDashboard({ googleUser, onLogout, onStartChat, onOpenSettings, onOp
         ) : (
           <div className="flex-1 bg-cream/95 backdrop-blur-lg flex items-center justify-center">
             <div className="text-center">
-              <Inbox className="w-24 h-24 mx-auto mb-4 text-navy/20" />
+              <img
+                src="/logo-graphic.png"
+                alt="ChatMoo logo"
+                className="w-24 h-24 mx-auto mb-4 object-contain drop-shadow"
+              />
               <h2 className="text-2xl font-bold text-navy mb-2">Your Inbox</h2>
               <p className="text-navy/60 mb-6">Select a conversation to view or start a new chat</p>
               <Button

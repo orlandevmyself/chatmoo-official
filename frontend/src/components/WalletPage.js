@@ -7,8 +7,11 @@ import {
   ArrowLeft, ArrowDownLeft, ArrowUpRight, Plus, Minus, RefreshCw, X, Wallet as WalletIcon, Lock, LockOpen,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { getErrorMessage } from '../utils/network';
+import { useConnection } from '../context/ConnectionContext';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3000';
+const PAGE_SIZE = 20;
 const METHODS = [
   { value: 'gcash', label: 'GCash' },
   { value: 'maya', label: 'Maya' },
@@ -36,6 +39,7 @@ const newIdempotencyKey = () =>
     : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
 function WalletPage({ googleUser, onBack }) {
+  const { reconnectTick } = useConnection();
   const [balance, setBalance] = useState(null);
   const [currency, setCurrency] = useState('PHP');
   const [withdrawablePercent, setWithdrawablePercent] = useState(80);
@@ -71,7 +75,7 @@ function WalletPage({ googleUser, onBack }) {
             type: type === 'all' ? undefined : type,
             status: status === 'all' ? undefined : status,
             page: pageToLoad,
-            limit: 20,
+            limit: PAGE_SIZE,
           },
         }),
       ]);
@@ -81,17 +85,17 @@ function WalletPage({ googleUser, onBack }) {
       if (typeof balRes.data.withdrawableMinor === 'number') setWithdrawableMinor(balRes.data.withdrawableMinor);
       setTxs(txRes.data.items || []);
       setTotal(txRes.data.total || 0);
-    } catch {
-      setError('Failed to load wallet');
+    } catch (error) {
+      setError(getErrorMessage(error, 'Failed to load wallet'));
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadAll(1, 'all', 'all');
+    loadAll();
     // eslint-disable-next-line
-  }, [googleUser]);
+  }, [googleUser, reconnectTick]);
 
   const applyFilter = (type, status) => {
     setTypeFilter(type);
@@ -138,7 +142,7 @@ function WalletPage({ googleUser, onBack }) {
       setDepAmount('');
       refreshAfterSubmit();
     } catch (err) {
-      setFormError(err.response?.data?.message || 'Deposit failed. Please try again.');
+      setFormError(getErrorMessage(err, 'Deposit failed. Please try again.'));
     } finally {
       setSubmitting(false);
     }
@@ -176,7 +180,7 @@ function WalletPage({ googleUser, onBack }) {
       setWdNumber('');
       refreshAfterSubmit();
     } catch (err) {
-      setFormError(err.response?.data?.message || 'Withdrawal failed. Please try again.');
+      setFormError(getErrorMessage(err, 'Withdrawal failed. Please try again.'));
     } finally {
       setSubmitting(false);
     }
@@ -193,7 +197,58 @@ function WalletPage({ googleUser, onBack }) {
     </span>
   );
 
-  const totalPages = Math.max(1, Math.ceil(total / 20));
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  // Nav + page numbers + count. Rendered above AND below so users can jump pages
+  // without scrolling through every record.
+  const PaginationBar = () => {
+    if (totalPages <= 1) return null;
+    const shownFrom = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+    const shownTo = Math.min(page * PAGE_SIZE, total);
+    const start = Math.max(1, Math.min(page - 2, totalPages - 4));
+    const end = Math.min(totalPages, start + 4);
+    const pages = [];
+    for (let p = start; p <= end; p++) pages.push(p);
+    return (
+      <div className="flex items-center justify-between gap-2 flex-wrap mt-4">
+        <p className="text-xs text-navy/50">Showing {shownFrom}–{shownTo} of {total}</p>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={page <= 1}
+            onClick={() => changePage(page - 1)}
+            className="h-8 px-2"
+          >
+            Prev
+          </Button>
+          {pages.map((p) => (
+            <button
+              key={p}
+              onClick={() => changePage(p)}
+              className={cn(
+                "w-8 h-8 rounded-lg text-xs font-medium border transition-colors",
+                p === page
+                  ? "bg-coral text-white border-coral"
+                  : "border-navy/20 text-navy/60 hover:border-coral hover:bg-coral/5"
+              )}
+            >
+              {p}
+            </button>
+          ))}
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={page >= totalPages}
+            onClick={() => changePage(page + 1)}
+            className="h-8 px-2"
+          >
+            Next
+          </Button>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-navy via-softPurple to-coral p-4 md:p-6">
@@ -300,6 +355,8 @@ function WalletPage({ googleUser, onBack }) {
             ))}
           </div>
 
+          <PaginationBar />
+
           {txs.length === 0 ? (
             <div className="text-center py-8 text-navy/50">
               <WalletIcon className="w-12 h-12 mx-auto mb-2 text-navy/20" />
@@ -345,27 +402,7 @@ function WalletPage({ googleUser, onBack }) {
             </div>
           )}
 
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between mt-4">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={page <= 1}
-                onClick={() => changePage(page - 1)}
-              >
-                Prev
-              </Button>
-              <p className="text-xs text-navy/50">Page {page} of {totalPages} ({total})</p>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={page >= totalPages}
-                onClick={() => changePage(page + 1)}
-              >
-                Next
-              </Button>
-            </div>
-          )}
+          <PaginationBar />
         </Card>
       </div>
 

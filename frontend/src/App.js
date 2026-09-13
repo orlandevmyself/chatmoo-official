@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import LandingPage from './components/LandingPage';
 import ChatPage from './components/ChatPage';
 import ProfileSetup from './components/ProfileSetup';
@@ -9,12 +10,21 @@ import { sessionManager } from './utils/sessionManager';
 import { resetAppSettings } from './utils/appSettings';
 import './App.css';
 
+function LoadingScreen() {
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-navy via-softPurple to-coral flex items-center justify-center">
+      <div className="w-12 h-12 border-4 border-white/30 border-t-white rounded-full animate-spin" />
+    </div>
+  );
+}
+
 function App() {
   const [session, setSession] = useState(null);
-  const [currentPage, setCurrentPage] = useState('landing');
   const [googleUser, setGoogleUser] = useState(null);
   const [guestSession, setGuestSession] = useState(null);
   const [profileTick, setProfileTick] = useState(0);
+  const [restoring, setRestoring] = useState(true);
+  const navigate = useNavigate();
 
   useEffect(() => {
     // Load session from localStorage on mount
@@ -54,8 +64,6 @@ function App() {
         if (guestSessionData && sessionManager.isSessionValid(guestSessionData)) {
           console.log('[App] Restoring guest session from storage:', guestSessionData);
           setGuestSession(guestSessionData);
-          // For guest sessions, restore to landing page with the session data
-          // The user can then start chatting again with their previous preferences
         } else {
           console.log('[App] No valid session found');
           sessionManager.clearSession();
@@ -65,81 +73,140 @@ function App() {
     };
 
     loadSession();
+    setRestoring(false);
   }, []);
 
   const handleStartChat = (sessionData) => {
     setSession(sessionData);
-    setCurrentPage('chat');
-    
+
     // Update guest session if this is a guest user
     if (sessionData.isGuest) {
       sessionManager.saveGuestSession(sessionData);
       setGuestSession(sessionData);
     }
+    navigate('/chat');
   };
 
   const handleBackToLanding = () => {
     setSession(null);
-    setCurrentPage('landing');
+    navigate('/');
   };
 
   const handleProfileComplete = () => {
     const updatedUser = { ...googleUser, profileComplete: true };
     setGoogleUser(updatedUser);
     sessionManager.saveSession(updatedUser);
-    setCurrentPage('landing');
+    navigate('/');
   };
 
   const handleLogout = () => {
     setGoogleUser(null);
     setGuestSession(null);
     setSession(null);
-    setCurrentPage('landing');
     sessionManager.clearSession();
     sessionManager.clearGuestSession();
     resetAppSettings();
+    navigate('/');
   };
+
+  if (restoring) {
+    return <LoadingScreen />;
+  }
+
+  const dashboard = (
+    <UserDashboard
+      googleUser={googleUser}
+      onLogout={handleLogout}
+      onStartChat={handleStartChat}
+      onOpenSettings={() => navigate('/settings')}
+      onOpenWallet={() => navigate('/wallet')}
+      refreshSignal={profileTick}
+    />
+  );
 
   return (
     <div className="App">
-      {googleUser && !googleUser.profileComplete ? (
-        <ProfileSetup googleUser={googleUser} onComplete={handleProfileComplete} />
-      ) : currentPage === 'settings' && googleUser ? (
-        <SettingsPage
-          googleUser={googleUser}
-          onBack={() => {
-            setProfileTick((t) => t + 1);
-            setCurrentPage('landing');
-          }}
-          onLogout={handleLogout}
+      <Routes>
+        <Route
+          path="/"
+          element={
+            googleUser ? (
+              googleUser.profileComplete ? (
+                dashboard
+              ) : (
+                <Navigate to="/profile-setup" replace />
+              )
+            ) : (
+              <LandingPage
+                onStartChat={handleStartChat}
+                googleUser={googleUser}
+                guestSession={guestSession}
+                onLogout={handleLogout}
+              />
+            )
+          }
         />
-      ) : currentPage === 'wallet' && googleUser ? (
-        <WalletPage
-          googleUser={googleUser}
-          onBack={() => {
-            setProfileTick((t) => t + 1);
-            setCurrentPage('landing');
-          }}
+        <Route
+          path="/profile-setup"
+          element={
+            googleUser && !googleUser.profileComplete ? (
+              <ProfileSetup googleUser={googleUser} onComplete={handleProfileComplete} />
+            ) : (
+              <Navigate to="/" replace />
+            )
+          }
         />
-      ) : currentPage === 'landing' && googleUser ? (
-        <UserDashboard 
-          googleUser={googleUser}
-          onLogout={handleLogout}
-          onStartChat={handleStartChat}
-          onOpenSettings={() => setCurrentPage('settings')}
-          onOpenWallet={() => setCurrentPage('wallet')}
-          refreshSignal={profileTick}
+        <Route
+          path="/chat"
+          element={
+            session ? (
+              <ChatPage session={session} onBackToLanding={handleBackToLanding} />
+            ) : (
+              <Navigate to="/" replace />
+            )
+          }
         />
-      ) : currentPage === 'landing' ? (
-        <LandingPage 
-          onStartChat={handleStartChat} 
-          googleUser={googleUser}
-          guestSession={guestSession}
-          onLogout={handleLogout}
+        <Route
+          path="/settings"
+          element={
+            googleUser ? (
+              <SettingsPage
+                googleUser={googleUser}
+                onBack={() => {
+                  setProfileTick((t) => t + 1);
+                  navigate('/');
+                }}
+                onLogout={handleLogout}
+              />
+            ) : (
+              <Navigate to="/" replace />
+            )
+          }
         />
-      ) : (
-        <ChatPage session={session} onBackToLanding={handleBackToLanding} />
-      )}
+        <Route
+          path="/wallet"
+          element={
+            googleUser ? (
+              <WalletPage
+                googleUser={googleUser}
+                onBack={() => {
+                  setProfileTick((t) => t + 1);
+                  navigate('/');
+                }}
+              />
+            ) : (
+              <Navigate to="/" replace />
+            )
+          }
+        />
+        <Route
+          path="/conversations/:conversationId"
+          element={
+            googleUser ? dashboard : <Navigate to="/" replace />
+          }
+        />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
     </div>
   );
 }

@@ -3,11 +3,12 @@ import io from 'socket.io-client';
 import axios from 'axios';
 import { Button } from './ui/button';
 import { Card } from './ui/card';
-import { ArrowLeft, Globe } from 'lucide-react';
+import { ArrowLeft, Globe, WifiOff } from 'lucide-react';
 import { sessionManager } from '../utils/sessionManager';
 import ChatWindow from './ChatWindow';
 import { getAvatarUrl, getDisplayName, getFlagUrl } from '../utils/conversationHelpers';
 import { getAppSettings, playMessageSound, notifyNewMessage } from '../utils/appSettings';
+import { getErrorMessage, isNetworkError } from '../utils/network';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3000';
 const SOCKET_URL = process.env.REACT_APP_SOCKET_URL || 'http://localhost:3000';
@@ -26,6 +27,8 @@ function ChatPage({ session, onBackToLanding }) {
   const [isSaving, setIsSaving] = useState(false);
   const [hasSaved, setHasSaved] = useState(false);
   const [walletBalance, setWalletBalance] = useState(null);
+  const [socketConnected, setSocketConnected] = useState(true);
+  const [connectionNotice, setConnectionNotice] = useState('');
   const socketRef = useRef(null);
   const startMatchingRef = useRef(null);
   const matchingTimeoutRef = useRef(null);
@@ -48,6 +51,8 @@ function ChatPage({ session, onBackToLanding }) {
 
     newSocket.on('connect', () => {
       console.log('[Frontend] Connected to WebSocket with socket ID:', newSocket.id);
+      setSocketConnected(true);
+      setConnectionNotice('');
       if (status === 'searching') {
         console.log('[Frontend] Socket connected while searching, starting matching');
         setTimeout(() => startMatchingRef.current?.(), 500);
@@ -57,8 +62,17 @@ function ChatPage({ session, onBackToLanding }) {
       }
     });
 
+    newSocket.on('disconnect', (reason) => {
+      console.log('[Frontend] WebSocket disconnected:', reason);
+      setSocketConnected(false);
+      if (status === 'searching' && reason !== 'io server disconnect') {
+        setConnectionNotice("You're offline — we'll reconnect you automatically.");
+      }
+    });
+
     newSocket.on('connect_error', (error) => {
       console.error('[Frontend] WebSocket connection error:', error);
+      setSocketConnected(false);
     });
 
     newSocket.on('messageHistory', (historyMessages) => {
@@ -349,6 +363,11 @@ function ChatPage({ session, onBackToLanding }) {
       console.error('[Frontend] Matching error:', error);
       isProcessingMatchRef.current = false;
       if (status === 'searching') {
+        if (isNetworkError(error)) {
+          setConnectionNotice("Search paused — you appear to be offline. Reconnecting automatically…");
+          return;
+        }
+        setConnectionNotice('');
         const retryDelay = error.response?.status === 500 ? 5000 : 2000;
         matchingTimeoutRef.current = setTimeout(() => {
           console.log(`[Frontend] Retrying matching after ${retryDelay}ms due to error...`);
@@ -846,6 +865,12 @@ function ChatPage({ session, onBackToLanding }) {
           </div>
           <h2 className="text-2xl font-bold mb-2 text-navy">Searching for a match...</h2>
           <p className="text-navy/70 mb-2">Looking for someone to chat with</p>
+          {connectionNotice && (
+            <p className="mb-4 bg-amber-100/90 text-amber-800 text-sm font-medium rounded-lg px-3 py-2 flex items-center justify-center gap-2">
+              <WifiOff className="w-4 h-4 shrink-0" />
+              {connectionNotice}
+            </p>
+          )}
           {session.country && (
             <p className="text-navy/50 text-sm flex items-center justify-center gap-2">
               <Globe className="w-4 h-4" />
@@ -919,7 +944,13 @@ function ChatPage({ session, onBackToLanding }) {
   }
 
   return (
-    <div className="h-screen">
+    <div className="h-screen relative">
+      {!socketConnected && (
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 bg-amber-500/95 text-white text-xs font-semibold px-3 py-1.5 rounded-full shadow-lg flex items-center gap-2 whitespace-nowrap">
+          <WifiOff className="w-3.5 h-3.5" />
+          Reconnecting…
+        </div>
+      )}
       <ChatWindow
       session={session}
       partner={matchedUser}

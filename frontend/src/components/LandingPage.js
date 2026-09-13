@@ -7,6 +7,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { User, GraduationCap, Venus, Mars, Transgender, Lock, Crown, Sparkles, X, Check, XCircle, CreditCard, Wallet, Landmark, RefreshCw, ChevronDown, Search, LogOut } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { sessionManager } from '../utils/sessionManager';
+import { getErrorMessage } from '../utils/network';
+import { useConnection } from '../context/ConnectionContext';
 
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3000';
@@ -58,6 +60,7 @@ function LandingPage({ onStartChat, googleUser, guestSession, onLogout }) {
   const [showUniversityDropdown, setShowUniversityDropdown] = useState(false);
   const [isOtherCountry, setIsOtherCountry] = useState(false);
   const [isOtherUniversity, setIsOtherUniversity] = useState(false);
+  const { reconnectTick } = useConnection();
 
   // Load guest session data when available
   useEffect(() => {
@@ -95,7 +98,7 @@ function LandingPage({ onStartChat, googleUser, guestSession, onLogout }) {
     };
 
     fetchUniversities();
-  }, [formData.country]);
+  }, [formData.country, reconnectTick]);
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -269,7 +272,7 @@ function LandingPage({ onStartChat, googleUser, guestSession, onLogout }) {
 
       onStartChat(sessionData);
     } catch (err) {
-      setError('Failed to start chat. Please try again.');
+      setError(getErrorMessage(err, 'Failed to start chat. Please try again.'));
       console.error('Error:', err);
     } finally {
       setLoading(false);
@@ -398,9 +401,18 @@ function LandingPage({ onStartChat, googleUser, guestSession, onLogout }) {
         {/* Main Form Card */}
         <Card className="bg-cream/95 backdrop-blur-lg shadow-2xl border-0 flex-1 w-full">
           <CardHeader className="text-center pb-6">
-            <CardTitle className="text-4xl font-bold text-navy">
-              ChatMoo
-            </CardTitle>
+            <div className="flex items-center justify-center gap-3 mb-1">
+              <img
+                src="/logo-graphic.png"
+                alt="ChatMoo logo"
+                className="w-12 h-12 md:w-14 md:h-14 object-contain drop-shadow"
+              />
+              <img
+                src="/logo-text.png"
+                alt="ChatMoo"
+                className="h-9 md:h-10 w-auto object-contain drop-shadow"
+              />
+            </div>
             <CardDescription className="text-lg text-navy/70">
               Connect with strangers worldwide
             </CardDescription>
