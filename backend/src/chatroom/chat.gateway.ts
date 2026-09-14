@@ -32,6 +32,8 @@ import { randomUUID } from 'crypto';
         ...envOrigins.split(',').map(o => o.trim()).filter(Boolean),
       ];
 
+      // comment
+
       if (!origin || allowedOrigins.some(o =>
         typeof o === 'string' ? o === origin : o.test(origin)
       )) {
