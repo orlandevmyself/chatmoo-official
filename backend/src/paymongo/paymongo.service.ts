@@ -233,7 +233,8 @@ export class PaymongoService {
     const userId = metadata.userId;
 
     if (!paymentIntentId || !amount || !userId) {
-      throw new Error('Missing required fields in payment intent: id, amount, or userId in metadata');
+      console.warn('[PaymongoService] Skipping payment intent', paymentIntentId, '- unresolvable: missing id, amount, or userId metadata');
+      return { skipped: true, reason: 'missing_ref', id: paymentIntentId };
     }
 
     const purpose = metadata.purpose || 'wallet';
@@ -247,7 +248,8 @@ export class PaymongoService {
     let userId = metadata.userId;
 
     if (!paymentId || !amount) {
-      throw new Error('Missing required fields in payment: id or amount');
+      console.warn('[PaymongoService] Skipping payment', paymentId, '- unresolvable: missing id or amount');
+      return { skipped: true, reason: 'missing_ref', id: paymentId };
     }
 
     // Fallback: if the payment carried no userId (e.g. legacy payment links),
@@ -264,7 +266,8 @@ export class PaymongoService {
     }
 
     if (!userId) {
-      throw new Error('Missing user reference in payment: no userId in metadata and no billing email match');
+      console.warn('[PaymongoService] Skipping payment', paymentId, '- no userId metadata and billing email does not match any user');
+      return { skipped: true, reason: 'no_user_reference', id: paymentId };
     }
 
     const purpose = metadata.purpose || 'wallet';
@@ -282,8 +285,14 @@ export class PaymongoService {
       attributes.payment_intent?.attributes?.amount ||
       0;
 
-    if (!sessionId || !amount || !userId) {
-      throw new Error('Missing required fields in checkout session: id, amount, or userId in metadata');
+    if (!sessionId || !amount) {
+      console.warn('[PaymongoService] Skipping checkout session', sessionId, '- unresolvable: missing id or amount');
+      return { skipped: true, reason: 'missing_ref', id: sessionId };
+    }
+
+    if (!userId) {
+      console.warn('[PaymongoService] Skipping checkout session', sessionId, '- no userId in metadata');
+      return { skipped: true, reason: 'no_user_reference', id: sessionId };
     }
 
     const purpose = metadata.purpose || 'wallet';
