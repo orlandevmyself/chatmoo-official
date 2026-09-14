@@ -154,31 +154,35 @@ export class PaymongoController {
       }
 
       const payload = JSON.parse(rawBody);
-      const event = payload.data;
-      console.log('PayMongo Webhook Event:', event.type, event.id);
+      const eventWrapper = payload.data;
+      const eventType = eventWrapper?.attributes?.type;
+      const eventData = eventWrapper?.attributes?.data;
+      console.log('PayMongo Webhook Event:', eventType, eventData?.id);
 
       // Handle different webhook event types
-      switch (event.type) {
+      switch (eventType) {
         case 'payment_intent.amount_capturable_updated':
           // Payment method attached, ready to capture
-          console.log('Payment method attached:', event.attributes.id);
+          console.log('Payment method attached:', eventData?.attributes?.id);
           break;
         case 'payment_intent.succeeded':
           // Payment successful - credit user's wallet
-          console.log('Payment succeeded:', event.attributes.id);
-          await this.paymongoService.handlePaymentSucceeded(event);
+          await this.paymongoService.handlePaymentSucceeded(eventData);
+          break;
+        case 'payment.paid':
+          // Simple payment (e.g. payment links) - credit by metadata userId or billing email
+          await this.paymongoService.handlePaymentPaid(eventData);
           break;
         case 'checkout_session.payment.paid':
           // Hosted checkout paid - credit user's wallet
-          console.log('Checkout session paid:', event.attributes.id);
-          await this.paymongoService.handleCheckoutSessionPaid(event);
+          await this.paymongoService.handleCheckoutSessionPaid(eventData);
           break;
         case 'payment_intent.canceled':
           // Payment canceled
-          console.log('Payment canceled:', event.attributes.id);
+          console.log('Payment canceled:', eventData?.attributes?.id);
           break;
         default:
-          console.log('Unhandled event type:', event.type);
+          console.log('Unhandled event type:', eventType);
       }
 
       return { success: true };

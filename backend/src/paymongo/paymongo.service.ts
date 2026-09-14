@@ -227,9 +227,9 @@ export class PaymongoService {
   }
 
   async handlePaymentSucceeded(event: any) {
-    const paymentIntentId = event.attributes?.id;
-    const amount = event.attributes?.amount;
-    const metadata = event.attributes?.metadata || {};
+    const paymentIntentId = event?.attributes?.id;
+    const amount = event?.attributes?.amount;
+    const metadata = event?.attributes?.metadata || {};
     const userId = metadata.userId;
 
     if (!paymentIntentId || !amount || !userId) {
@@ -240,8 +240,39 @@ export class PaymongoService {
     return this.creditWallet(amount, userId, purpose, paymentIntentId);
   }
 
+  async handlePaymentPaid(event: any) {
+    const paymentId = event?.attributes?.id;
+    const amount = event?.attributes?.amount;
+    const metadata = event?.attributes?.metadata || {};
+    let userId = metadata.userId;
+
+    if (!paymentId || !amount) {
+      throw new Error('Missing required fields in payment: id or amount');
+    }
+
+    // Fallback: if the payment carried no userId (e.g. legacy payment links),
+    // match the wallet owner by the billing email on the payment.
+    if (!userId) {
+      const email = event?.attributes?.billing?.email;
+      if (email) {
+        const user = await this.prisma.user.findUnique({ where: { email } });
+        if (user) {
+          userId = user.id;
+          console.log('[PaymongoService] Resolved payment', paymentId, 'to user by email:', email);
+        }
+      }
+    }
+
+    if (!userId) {
+      throw new Error('Missing user reference in payment: no userId in metadata and no billing email match');
+    }
+
+    const purpose = metadata.purpose || 'wallet';
+    return this.creditWallet(amount, userId, purpose, paymentId);
+  }
+
   async handleCheckoutSessionPaid(event: any) {
-    const attributes = event.attributes || {};
+    const attributes = event?.attributes || {};
     const sessionId = attributes.id;
     const metadata = attributes.metadata || {};
     const userId = metadata.userId;
