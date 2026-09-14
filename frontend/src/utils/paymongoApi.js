@@ -1,4 +1,4 @@
-const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:3000';
+const API_BASE = process.env.REACT_APP_API_URL || 'https://chatmoo-official.onrender.com';
 
 export const paymongoApi = {
   // Create a payment intent
@@ -175,7 +175,7 @@ export const paymongoApi = {
 
   // Initialize PayMongo client for frontend payment handling
   initializePayMongo: () => {
-    const publicKey = process.env.REACT_APP_PAYMONGO_PUBLIC_KEY;
+    const publicKey = process.env.REACT_APP_PAYMONGO_PUBLIC_KEY || 'pk_test_ey6fZVweocUnY8aJ7wreQH9U';
     if (!publicKey) {
       console.error('PayMongo public key not found in environment variables');
       return null;

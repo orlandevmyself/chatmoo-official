@@ -3,7 +3,7 @@ import axios from 'axios';
 // App-wide user settings. Persisted in the DB per user; a per-user local
 // cache makes reads instant and keeps things working offline. Writes update
 // the cache immediately (UI applies at once) and sync to the DB debounced.
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3000';
+const API_URL = process.env.REACT_APP_API_URL || 'https://chatmoo-official.onrender.com';
 
 export const DEFAULT_SETTINGS = {
   messageSound: true,

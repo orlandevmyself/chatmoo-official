@@ -12,7 +12,7 @@ import { useConnection } from '../context/ConnectionContext';
 import LoudSpeaker from './LoudSpeaker';
 
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3000';
+const API_URL = process.env.REACT_APP_API_URL || 'https://chatmoo-official.onrender.com';
 const UNIVERSITIES_API = `${API_URL}/utils/universities`;
 
 const COUNTRIES = [

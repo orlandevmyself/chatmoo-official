@@ -11,7 +11,7 @@ import { getErrorMessage } from '../utils/network';
 import { useConnection } from '../context/ConnectionContext';
 import PaymentModal from './PaymentModal';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3000';
+const API_URL = process.env.REACT_APP_API_URL || 'https://chatmoo-official.onrender.com';
 const PAGE_SIZE = 20;
 const METHODS = [
   { value: 'paymongo', label: 'Card (PayMongo)', type: 'external' },

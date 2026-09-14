@@ -15,7 +15,7 @@ import ReportUserDialog from './ReportUserDialog';
 import { getGift } from '../utils/giftCatalog';
 import { blockReportApi } from '../utils/blockReportApi';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3000';
+const API_URL = process.env.REACT_APP_API_URL || 'https://chatmoo-official.onrender.com';
 
 // Reusable chat surface used by both the random-match ChatPage and the
 // saved-conversation chat. All transport (socket) lives in the parent;

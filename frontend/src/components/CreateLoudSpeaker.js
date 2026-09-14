@@ -3,7 +3,7 @@ import { Volume2, AlertCircle } from 'lucide-react';
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 
-const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:3000';
+const API_BASE = process.env.REACT_APP_API_URL || 'https://chatmoo-official.onrender.com';
 
 function CreateLoudSpeaker({ userId, balance, onSuccess }) {
   const [message, setMessage] = useState('');

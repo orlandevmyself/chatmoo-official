@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import LoudSpeakerDisplay from './LoudSpeakerDisplay';
 
-const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:3000';
+const API_BASE = process.env.REACT_APP_API_URL || 'https://chatmoo-official.onrender.com';
 
 function LoudSpeaker({ scope = 'sitewide', userId }) {
   const [campaigns, setCampaigns] = useState([]);

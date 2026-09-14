@@ -3,7 +3,7 @@ import { ArrowLeft, AlertCircle, Trash2 } from 'lucide-react';
 import CreateLoudSpeaker from './CreateLoudSpeaker';
 import LoudSpeaker from './LoudSpeaker';
 
-const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:3000';
+const API_BASE = process.env.REACT_APP_API_URL || 'https://chatmoo-official.onrender.com';
 
 function LoudSpeakerPage({ userId, onBack, walletBalance }) {
   const [campaigns, setCampaigns] = useState([]);

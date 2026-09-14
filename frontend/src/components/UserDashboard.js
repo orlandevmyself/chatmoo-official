@@ -29,7 +29,7 @@ import { cn } from '../lib/utils';
 import { useNavigate, useParams } from 'react-router-dom';
 import LoudSpeaker from './LoudSpeaker';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3000';
+const API_URL = process.env.REACT_APP_API_URL || 'https://chatmoo-official.onrender.com';
 
 const formatPHP = (minor) =>
   new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format((minor || 0) / 100);

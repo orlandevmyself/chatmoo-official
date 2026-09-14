@@ -12,7 +12,7 @@ import { sessionManager } from './utils/sessionManager';
 import { resetAppSettings } from './utils/appSettings';
 import './App.css';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3000';
+const API_URL = process.env.REACT_APP_API_URL || 'https://chatmoo-official.onrender.com';
 
 function LoadingScreen() {
   return (

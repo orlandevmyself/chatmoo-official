@@ -6,7 +6,7 @@ import { Zap, MapPin, Building2, Users, X } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { COUNTRIES } from '../utils/locationConstants';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3000';
+const API_URL = process.env.REACT_APP_API_URL || 'https://chatmoo-official.onrender.com';
 
 const GENDERS = [
   { value: 'all', label: 'All', emoji: '👥' },

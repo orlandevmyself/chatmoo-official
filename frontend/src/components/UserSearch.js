@@ -16,7 +16,7 @@ import {
 import { cn } from '../lib/utils';
 import { getAvatarUrl } from '../utils/conversationHelpers';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3000';
+const API_URL = process.env.REACT_APP_API_URL || 'https://chatmoo-official.onrender.com';
 
 function UserSearch({ googleUser, onClose, onStartConversation }) {
   const [searchQuery, setSearchQuery] = useState('');

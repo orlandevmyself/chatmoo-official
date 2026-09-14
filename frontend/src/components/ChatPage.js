@@ -13,7 +13,7 @@ import { getAvatarUrl, getDisplayName, getFlagUrl } from '../utils/conversationH
 import { getAppSettings, playMessageSound, notifyNewMessage } from '../utils/appSettings';
 import { getErrorMessage, isNetworkError } from '../utils/network';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3000';
+const API_URL = process.env.REACT_APP_API_URL || 'https://chatmoo-official.onrender.com';
 const SOCKET_URL = process.env.REACT_APP_SOCKET_URL || API_URL;
 
 function ChatPage({ session, onBackToLanding }) {

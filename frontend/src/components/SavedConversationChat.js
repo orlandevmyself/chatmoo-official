@@ -6,7 +6,7 @@ import LoudSpeaker from './LoudSpeaker';
 import { getConversationPartner, mapSavedToChat, mergeMessagesById, computeOwnSenderIds, getDisplayName } from '../utils/conversationHelpers';
 import { getAppSettings, playMessageSound, notifyNewMessage } from '../utils/appSettings';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3000';
+const API_URL = process.env.REACT_APP_API_URL || 'https://chatmoo-official.onrender.com';
 const SOCKET_URL = process.env.REACT_APP_SOCKET_URL || API_URL;
 const JOIN_TIMEOUT_MS = 12000;
 
