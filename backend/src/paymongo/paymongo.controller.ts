@@ -154,9 +154,20 @@ export class PaymongoController {
       }
 
       const payload = JSON.parse(rawBody);
-      const eventWrapper = payload.data;
-      const eventType = eventWrapper?.attributes?.type;
-      const eventData = eventWrapper?.attributes?.data;
+
+      // Normalize the two known webhook envelope shapes PayMongo sends:
+      //   classic     : { data: { id, type: 'event', attributes: { type, data } } }
+      //   send.webhook: { event_type: 'send.webhook', data: { type: '<event>', ..., data: <resource> } }
+      const top = payload?.data ?? {};
+      let eventType =
+        top.type === 'event' ? top?.attributes?.type
+        : top.type && top.type !== 'event' && top.data ? top.type
+        : payload?.event_type || null;
+      let eventData =
+        top.type === 'event' ? top?.attributes?.data
+        : top.type && top.type !== 'event' && top.data ? top.data
+        : top;
+
       console.log('PayMongo Webhook Event:', eventType, eventData?.id);
 
       // Handle different webhook event types
