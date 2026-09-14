@@ -1,6 +1,47 @@
 const API_BASE = process.env.REACT_APP_API_URL || 'https://chatmoo-official.onrender.com';
 
 export const paymongoApi = {
+  // Create a hosted checkout session (carries userId metadata for wallet crediting)
+  createCheckoutSession: async (amount, currency, description, metadata) => {
+    try {
+      const response = await fetch(`${API_BASE}/paymongo/checkout-session`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          amount,
+          currency,
+          description,
+          metadata,
+        }),
+        credentials: 'include',
+      });
+
+      const data = await response.json();
+
+      // Check if response indicates an error (either HTTP error or API error)
+      if (!response.ok) {
+        throw new Error(data?.error || `Checkout Session Error: ${response.status} ${response.statusText}`);
+      }
+
+      // Check for API-level error (success: false)
+      if (data && data.success === false) {
+        throw new Error(data.error || 'Failed to create checkout session');
+      }
+
+      // Validate response structure
+      if (!data || !data.data) {
+        throw new Error('Invalid response from checkout session endpoint');
+      }
+
+      return data.data;
+    } catch (error) {
+      console.error('Create Checkout Session Error:', error);
+      throw new Error(error instanceof Error ? error.message : 'Failed to create checkout session');
+    }
+  },
+
   // Create a payment intent
   createPaymentIntent: async (amount, currency, description, metadata) => {
     try {

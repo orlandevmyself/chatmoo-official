@@ -14,13 +14,12 @@ const PRESET_AMOUNTS = {
   premium: [99],
 };
 
-function PaymentModal({ isOpen, onClose, purpose = 'wallet', onSuccess, userId }) {
+function PaymentModal({ isOpen, onClose, purpose = 'wallet', onSuccess, userId, initialAmount = '' }) {
   const [step, setStep] = useState('amount'); // amount, payment-method, processing, success
-  const [amount, setAmount] = useState('');
+  const [amount, setAmount] = useState(initialAmount ? String(initialAmount) : '');
   const [email, setEmail] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [paymentIntentId, setPaymentIntentId] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
 
   const handleSelectAmount = (selectedAmount) => {
@@ -49,7 +48,9 @@ function PaymentModal({ isOpen, onClose, purpose = 'wallet', onSuccess, userId }
     try {
       const description = `${purpose === 'wallet' ? 'Wallet Top-up' : purpose === 'gift' ? 'Gift Purchase' : 'Premium Upgrade'} - PHP ${amount}`;
 
-      const paymentIntent = await paymongoApi.createPaymentIntent(
+      // Create a hosted checkout session. The webhook uses userId in metadata
+      // to credit the correct wallet, so no redirect/return flow needed here.
+      const checkout = await paymongoApi.createCheckoutSession(
         parseFloat(amount),
         'PHP',
         description,
@@ -60,19 +61,11 @@ function PaymentModal({ isOpen, onClose, purpose = 'wallet', onSuccess, userId }
         }
       );
 
-      setPaymentIntentId(paymentIntent.id);
+      const checkoutUrl =
+        checkout?.attributes?.checkout_url || checkout?.checkout_url;
 
-      // Create a payment link for easier checkout
-      const paymentLink = await paymongoApi.createPaymentLink(
-        parseFloat(amount),
-        'PHP',
-        description,
-        `Payment for ${purpose}`
-      );
-
-      // Redirect to payment link
-      if (paymentLink && paymentLink.attributes && paymentLink.attributes.checkout_url) {
-        window.location.href = paymentLink.attributes.checkout_url;
+      if (checkoutUrl) {
+        window.location.href = checkoutUrl;
       } else {
         setError('Failed to generate payment link. Please try again.');
         setLoading(false);

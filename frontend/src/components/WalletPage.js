@@ -597,6 +597,7 @@ function WalletPage({ googleUser, onBack }) {
         }}
         purpose="wallet"
         userId={googleUser?.id}
+        initialAmount={depAmount}
         onSuccess={() => {
           setShowPayMongo(false);
           setDepAmount('');

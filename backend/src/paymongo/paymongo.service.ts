@@ -88,6 +88,32 @@ export class PaymongoService {
     );
   }
 
+  async createCheckoutSession(data: {
+    amount: number;
+    currency: string;
+    description: string;
+    metadata: Record<string, any>;
+  }) {
+    return this.makeRequest('POST', '/checkout_sessions', {
+      data: {
+        attributes: {
+          line_items: [
+            {
+              name: data.description,
+              amount: Math.round(data.amount * 100),
+              currency: data.currency,
+              quantity: 1,
+            },
+          ],
+          payment_method_types: ['card', 'gcash', 'paymaya', 'grab_pay'],
+          description: data.description,
+          statement_descriptor: 'ChatMoo',
+          metadata: data.metadata,
+        },
+      },
+    });
+  }
+
   async getPaymentIntent(paymentIntentId: string) {
     return this.makeRequest('GET', `/payment_intents/${paymentIntentId}`);
   }
@@ -129,22 +155,27 @@ export class PaymongoService {
     return hash === signature;
   }
 
-  async handlePaymentSucceeded(event: any) {
-    const paymentIntentId = event.attributes?.id;
-    const amount = event.attributes?.amount;
-    const metadata = event.attributes?.metadata || {};
-    const userId = metadata.userId;
-
-    if (!paymentIntentId || !amount || !userId) {
-      throw new Error('Missing required fields in payment intent: id, amount, or userId in metadata');
+  private async creditWallet(
+    amountMinor: number,
+    userId: string,
+    purpose: string,
+    providerRef: string,
+  ) {
+    if (!amountMinor || !userId) {
+      throw new Error('Missing required fields: amount or userId');
     }
-
-    // Create wallet transaction and credit the wallet atomically
-    const amountMinor = amount; // PayMongo returns amount already in cents
-    const purpose = metadata.purpose || 'wallet';
 
     try {
       const result = await (this.prisma as any).$transaction(async (t: any) => {
+        // Idempotency guard: never double-credit the same payment
+        const existing = await t.walletTransaction.findFirst({
+          where: { providerRef, type: 'deposit', provider: 'paymongo' },
+        });
+        if (existing) {
+          console.log('[PaymongoService] Duplicate webhook, skipping:', providerRef);
+          return existing;
+        }
+
         // Ensure wallet exists
         const wallet = await t.wallet.upsert({
           where: { userId },
@@ -167,7 +198,7 @@ export class PaymongoService {
             status: 'completed',
             provider: 'paymongo',
             method: 'paymongo',
-            providerRef: paymentIntentId,
+            providerRef,
             remarks: `PayMongo payment for ${purpose}`,
           },
         });
@@ -181,7 +212,7 @@ export class PaymongoService {
         return tx;
       });
 
-      console.log('[PaymongoService] Payment processed:', paymentIntentId, 'user:', userId, 'amount:', amountMinor);
+      console.log('[PaymongoService] Payment processed:', providerRef, 'user:', userId, 'amount:', amountMinor);
       emitWalletUpdated(userId);
       return result;
     } catch (error: unknown) {
@@ -189,5 +220,38 @@ export class PaymongoService {
       console.error('[PaymongoService] Failed to process payment:', errorMessage);
       throw new Error(`Failed to process payment: ${errorMessage}`);
     }
+  }
+
+  async handlePaymentSucceeded(event: any) {
+    const paymentIntentId = event.attributes?.id;
+    const amount = event.attributes?.amount;
+    const metadata = event.attributes?.metadata || {};
+    const userId = metadata.userId;
+
+    if (!paymentIntentId || !amount || !userId) {
+      throw new Error('Missing required fields in payment intent: id, amount, or userId in metadata');
+    }
+
+    const purpose = metadata.purpose || 'wallet';
+    return this.creditWallet(amount, userId, purpose, paymentIntentId);
+  }
+
+  async handleCheckoutSessionPaid(event: any) {
+    const attributes = event.attributes || {};
+    const sessionId = attributes.id;
+    const metadata = attributes.metadata || {};
+    const userId = metadata.userId;
+    const payments = attributes.payments || [];
+    const amount =
+      payments.reduce((sum: number, p: any) => sum + (p?.attributes?.amount || 0), 0) ||
+      attributes.payment_intent?.attributes?.amount ||
+      0;
+
+    if (!sessionId || !amount || !userId) {
+      throw new Error('Missing required fields in checkout session: id, amount, or userId in metadata');
+    }
+
+    const purpose = metadata.purpose || 'wallet';
+    return this.creditWallet(amount, userId, purpose, sessionId);
   }
 }

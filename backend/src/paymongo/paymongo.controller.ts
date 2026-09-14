@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, Param, Headers, Req } from '@nestjs/common';
+import { Controller, Post, Get, Body, Param, Headers, Req, BadRequestException } from '@nestjs/common';
 import { PaymongoService } from './paymongo.service';
 
 @Controller('paymongo')
@@ -93,6 +93,30 @@ export class PaymongoController {
     }
   }
 
+  @Post('checkout-session')
+  async createCheckoutSession(
+    @Body() body: {
+      amount: number;
+      currency: string;
+      description: string;
+      metadata: Record<string, any>;
+    }
+  ) {
+    try {
+      const session = await this.paymongoService.createCheckoutSession(body);
+      return {
+        success: true,
+        data: session,
+      };
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      return {
+        success: false,
+        error: errorMessage,
+      };
+    }
+  }
+
   @Get('payment-link/:id')
   async getPaymentLink(@Param('id') linkId: string) {
     try {
@@ -113,7 +137,11 @@ export class PaymongoController {
   @Post('webhook')
   async handleWebhook(@Headers('x-paymongo-signature') signature: string, @Req() req: any) {
     try {
-      const rawBody = req.rawBody || JSON.stringify(req.body);
+      const rawBody =
+        req.rawBody && Buffer.isBuffer(req.rawBody)
+          ? req.rawBody.toString('utf8')
+          : JSON.stringify(req.body);
+
       const isValid = await this.paymongoService.webhookIsValid(signature, rawBody);
 
       if (!isValid) {
@@ -123,7 +151,8 @@ export class PaymongoController {
         };
       }
 
-      const event = req.body.data;
+      const payload = JSON.parse(rawBody);
+      const event = payload.data;
       console.log('PayMongo Webhook Event:', event.type, event.id);
 
       // Handle different webhook event types
@@ -135,16 +164,12 @@ export class PaymongoController {
         case 'payment_intent.succeeded':
           // Payment successful - credit user's wallet
           console.log('Payment succeeded:', event.attributes.id);
-          try {
-            await this.paymongoService.handlePaymentSucceeded(event);
-          } catch (err: unknown) {
-            const errorMsg = err instanceof Error ? err.message : 'Unknown error';
-            console.error('Failed to process successful payment:', errorMsg);
-            return {
-              success: false,
-              error: errorMsg,
-            };
-          }
+          await this.paymongoService.handlePaymentSucceeded(event);
+          break;
+        case 'checkout_session.payment.paid':
+          // Hosted checkout paid - credit user's wallet
+          console.log('Checkout session paid:', event.attributes.id);
+          await this.paymongoService.handleCheckoutSessionPaid(event);
           break;
         case 'payment_intent.canceled':
           // Payment canceled
@@ -158,10 +183,7 @@ export class PaymongoController {
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       console.error('Webhook Error:', errorMessage);
-      return {
-        success: false,
-        error: errorMessage,
-      };
+      throw new BadRequestException(errorMessage);
     }
   }
 }
