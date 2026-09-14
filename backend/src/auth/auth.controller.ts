@@ -11,6 +11,10 @@ export class AuthController {
     @Inject(GuestCleanupService) private guestCleanup: GuestCleanupService,
   ) {}
 
+  private getFrontendUrl(): string {
+    return process.env.FRONTEND_URL || 'http://localhost:3001';
+  }
+
   @Get('google')
   @UseGuards(AuthGuard('google'))
   async googleAuth(@Req() req) {
@@ -25,7 +29,7 @@ export class AuthController {
     const { user } = req;
 
     if (!user) {
-      return res.redirect('http://localhost:3001?error=auth_failed');
+      return res.redirect(`${this.getFrontendUrl()}?error=auth_failed`);
     }
 
     // Clean up previous guest account if transitioning from guest to authenticated user
@@ -44,7 +48,7 @@ export class AuthController {
       `${user.name?.givenName || ''} ${user.name?.familyName || ''}`.trim() :
       (user.name || user.email?.split('@')[0] || 'User');
 
-    const redirectUrl = `http://localhost:3001/auth/callback?userId=${user.id}&email=${encodeURIComponent(user.email || '')}&name=${encodeURIComponent(nameString)}&profileComplete=${user.profileComplete}`;
+    const redirectUrl = `${this.getFrontendUrl()}/auth/callback?userId=${user.id}&email=${encodeURIComponent(user.email || '')}&name=${encodeURIComponent(nameString)}&profileComplete=${user.profileComplete}`;
     console.log('[Auth] Redirecting to:', redirectUrl);
     res.redirect(redirectUrl);
   }
