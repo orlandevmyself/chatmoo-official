@@ -1,5 +1,6 @@
 import { Controller, Get, Req, Res, UseGuards, Post, Put, Body, Inject } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import * as https from 'https';
 import { Response } from 'express';
 import { AuthService } from './auth.service';
 import { GuestCleanupService } from './guest-cleanup.service';
@@ -24,6 +25,26 @@ export class AuthController {
       `${user.name?.givenName || ''} ${user.name?.familyName || ''}`.trim() :
       (user.name || user.email?.split('@')[0] || 'User');
     return `${this.getFrontendUrl()}/auth/callback?userId=${user.id}&email=${encodeURIComponent(user.email || '')}&name=${encodeURIComponent(nameString)}&profileComplete=${user.profileComplete}`;
+  }
+
+  // Node-version-independent JSON client for Google's OAuth endpoints.
+  private googleRequest(options: https.RequestOptions, body?: string): Promise<{ status?: number; data: any }> {
+    return new Promise((resolve, reject) => {
+      const req = https.request(options, (res) => {
+        let raw = '';
+        res.on('data', (chunk) => (raw += chunk));
+        res.on('end', () => {
+          try {
+            resolve({ status: res.statusCode, data: raw ? JSON.parse(raw) : null });
+          } catch {
+            resolve({ status: res.statusCode, data: raw });
+          }
+        });
+      });
+      req.on('error', reject);
+      if (body) req.write(body);
+      req.end();
+    });
   }
 
   @Get('google')
@@ -73,51 +94,63 @@ export class AuthController {
       return res.redirect(`${this.getFrontendUrl()}?error=auth_failed`);
     }
 
-    const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        code,
-        client_id: process.env.GOOGLE_CLIENT_ID || '',
-        client_secret: process.env.GOOGLE_CLIENT_SECRET || '',
-        redirect_uri: redirectUri,
-        grant_type: 'authorization_code',
-      }).toString(),
-    });
-    const tokenData: any = await tokenResponse.json();
-    if (!tokenResponse.ok || !tokenData.access_token) {
-      console.error('[Auth] Token exchange failed:', tokenData);
-      return res.redirect(`${this.getFrontendUrl()}?error=auth_failed`);
-    }
-
-    const profileResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
-      headers: { Authorization: `Bearer ${tokenData.access_token}` },
-    });
-    const userInfo: any = await profileResponse.json();
-    if (!profileResponse.ok || !userInfo.email) {
-      console.error('[Auth] Profile fetch failed:', userInfo);
-      return res.redirect(`${this.getFrontendUrl()}?error=auth_failed`);
-    }
-
-    const profile = {
-      emails: [{ value: userInfo.email }],
-      displayName: userInfo.name,
-      name: { givenName: userInfo.given_name, familyName: userInfo.family_name },
-    };
-    const user = await this.authService.validateGoogleUser(profile);
-
-    const prevGuestId = req.query?.prevGuestId || req.headers?.['x-prev-guest-id'];
-    if (prevGuestId && prevGuestId !== user.id) {
-      try {
-        await this.guestCleanup.cleanupGuestOnAuthentication(prevGuestId as string, user.id);
-      } catch (error) {
-        console.error(`[Auth] Error cleaning up previous guest account: ${(error as Error).message}`);
+    try {
+      const tokenResult = await this.googleRequest(
+        {
+          hostname: 'oauth2.googleapis.com',
+          path: '/token',
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        },
+        new URLSearchParams({
+          code,
+          client_id: process.env.GOOGLE_CLIENT_ID || '',
+          client_secret: process.env.GOOGLE_CLIENT_SECRET || '',
+          redirect_uri: redirectUri,
+          grant_type: 'authorization_code',
+        }).toString(),
+      );
+      const tokenData: any = tokenResult.data;
+      if (tokenResult.status !== 200 || !tokenData?.access_token) {
+        console.error('[Auth] Token exchange failed:', tokenData);
+        return res.redirect(`${this.getFrontendUrl()}?error=auth_failed`);
       }
-    }
 
-    const redirectUrl = this.buildAuthCallbackUrl(user);
-    console.log('[Auth] Redirecting to:', redirectUrl);
-    res.redirect(redirectUrl);
+      const profileResult = await this.googleRequest({
+        hostname: 'www.googleapis.com',
+        path: '/oauth2/v2/userinfo',
+        method: 'GET',
+        headers: { Authorization: `Bearer ${tokenData.access_token}` },
+      });
+      const userInfo: any = profileResult.data;
+      if (profileResult.status !== 200 || !userInfo?.email) {
+        console.error('[Auth] Profile fetch failed:', userInfo);
+        return res.redirect(`${this.getFrontendUrl()}?error=auth_failed`);
+      }
+
+      const profile = {
+        emails: [{ value: userInfo.email }],
+        displayName: userInfo.name,
+        name: { givenName: userInfo.given_name, familyName: userInfo.family_name },
+      };
+      const user = await this.authService.validateGoogleUser(profile);
+
+      const prevGuestId = req.query?.prevGuestId || req.headers?.['x-prev-guest-id'];
+      if (prevGuestId && prevGuestId !== user.id) {
+        try {
+          await this.guestCleanup.cleanupGuestOnAuthentication(prevGuestId as string, user.id);
+        } catch (error) {
+          console.error(`[Auth] Error cleaning up previous guest account: ${(error as Error).message}`);
+        }
+      }
+
+      const redirectUrl = this.buildAuthCallbackUrl(user);
+      console.log('[Auth] Redirecting to:', redirectUrl);
+      res.redirect(redirectUrl);
+    } catch (error) {
+      console.error('[Auth] Google code exchange error:', error);
+      return res.redirect(`${this.getFrontendUrl()}?error=auth_failed`);
+    }
   }
 
   @Get('user/:userId')
