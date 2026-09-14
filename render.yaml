@@ -1,0 +1,54 @@
+# Render Blueprint for the ChatMoo backend.
+#
+# NOTE: this file does NOT affect a Web Service that was created manually in the
+# Render dashboard -- such a service keeps using its own dashboard settings and
+# ignores this file. It only takes effect for services created via
+# "New +" -> "Blueprint". Treat it as the source of truth if the service is ever
+# recreated, not as a fix for an existing one.
+#
+# Secret values are intentionally absent: every envVar below is `sync: false`,
+# so only the key names live in git and the real values are entered once in the
+# Render dashboard.
+
+services:
+  - type: web
+    name: chatmoo-backend
+    env: node
+    plan: free
+    rootDir: backend
+    buildCommand: npm install && npx prisma generate && npm run build
+    startCommand: npm run start:prod
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: UPSTASH_REDIS_REST_URL
+        sync: false
+      - key: UPSTASH_REDIS_REST_TOKEN
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_PUBLISHABLE_KEY
+        sync: false
+      - key: SUPABASE_SECRET_KEY
+        sync: false
+      - key: SUPABASE_JWKS_URL
+        sync: false
+      - key: SUPABASE_BUCKET
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_CALLBACK_URL
+        sync: false
+      - key: PAYMONGO_SECRET_KEY
+        sync: false
+      - key: PAYMONGO_PUBLIC_KEY
+        sync: false
+      - key: PAYMONGO_WEBHOOK_SECRET
+        sync: false
+      - key: WITHDRAWABLE_PERCENT
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false
