@@ -9,7 +9,7 @@ import {
 import { cn } from '../lib/utils';
 import { getErrorMessage } from '../utils/network';
 import { useConnection } from '../context/ConnectionContext';
-import PaymentModal from './PaymentModal';
+import paymongoApi from '../utils/paymongoApi';
 
 const API_URL = process.env.REACT_APP_API_URL || 'https://chatmoo-official.onrender.com';
 const PAGE_SIZE = 20;
@@ -54,7 +54,6 @@ function WalletPage({ googleUser, onBack }) {
   const [error, setError] = useState('');
   const [showDeposit, setShowDeposit] = useState(false);
   const [showWithdraw, setShowWithdraw] = useState(false);
-  const [showPayMongo, setShowPayMongo] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
   const [depAmount, setDepAmount] = useState('');
@@ -97,6 +96,10 @@ function WalletPage({ googleUser, onBack }) {
 
   useEffect(() => {
     loadAll();
+    // Re-check shortly after load: after a PayMongo redirect the webhook can
+    // credit the wallet a moment after the page mounts.
+    const timers = [3000, 8000].map((t) => setTimeout(() => loadAll(), t));
+    return () => timers.forEach((t) => clearTimeout(t));
     // eslint-disable-next-line
   }, [googleUser, reconnectTick]);
 
@@ -134,10 +137,36 @@ function WalletPage({ googleUser, onBack }) {
       return;
     }
 
-    // If PayMongo is selected, show PayMongo modal instead
+    // If PayMongo is selected, skip the intermediate modal and go straight to checkout
     if (depMethod === 'paymongo') {
-      setShowDeposit(false);
-      setShowPayMongo(true);
+      setSubmitting(true);
+      try {
+        const description = `Wallet Top-up - PHP ${depAmount}`;
+        const returnUrl = window.location.href;
+        const checkout = await paymongoApi.createCheckoutSession(
+          parseFloat(depAmount),
+          'PHP',
+          description,
+          {
+            purpose: 'wallet',
+            userId: googleUser.id,
+          },
+          returnUrl,
+          returnUrl
+        );
+
+        const checkoutUrl = checkout?.attributes?.checkout_url || checkout?.checkout_url;
+
+        if (checkoutUrl) {
+          window.location.href = checkoutUrl;
+        } else {
+          setFormError('Failed to generate payment link. Please try again.');
+          setSubmitting(false);
+        }
+      } catch (err) {
+        setFormError(getErrorMessage(err, 'Failed to start PayMongo checkout.'));
+        setSubmitting(false);
+      }
       return;
     }
 
@@ -587,23 +616,6 @@ function WalletPage({ googleUser, onBack }) {
           </Card>
         </div>
       )}
-
-      {/* PayMongo Payment Modal */}
-      <PaymentModal
-        isOpen={showPayMongo}
-        onClose={() => {
-          setShowPayMongo(false);
-          setDepAmount('');
-        }}
-        purpose="wallet"
-        userId={googleUser?.id}
-        initialAmount={depAmount}
-        onSuccess={() => {
-          setShowPayMongo(false);
-          setDepAmount('');
-          refreshAfterSubmit();
-        }}
-      />
     </div>
   );
 }
