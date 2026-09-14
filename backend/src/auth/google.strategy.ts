@@ -6,7 +6,10 @@ import { AuthService } from './auth.service';
 @Injectable()
 export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
   constructor(private authService: AuthService) {
-    const callbackURL = process.env.GOOGLE_CALLBACK_URL || 'http://localhost:3000/auth/google/callback';
+    const callbackURL = process.env.GOOGLE_CALLBACK_URL;
+    if (!callbackURL) {
+      throw new Error('GOOGLE_CALLBACK_URL is not set — never fall back to localhost for the Google OAuth callback');
+    }
     super({
       clientID: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,

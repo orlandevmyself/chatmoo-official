@@ -36,6 +36,16 @@ function App() {
     const loadSession = () => {
       // Check for Google OAuth callback in URL first
       const urlParams = new URLSearchParams(window.location.search);
+      const code = urlParams.get('code');
+
+      // Google OAuth code landed on the frontend (Vercel callback). Forward it
+      // to the backend, which exchanges it server-side and redirects back here.
+      if (window.location.pathname === '/auth/google/callback' && code) {
+        const redirectUri = encodeURIComponent(`${window.location.origin}/auth/google/callback`);
+        window.location.href = `${API_URL}/auth/google/code?code=${encodeURIComponent(code)}&redirectUri=${redirectUri}`;
+        return;
+      }
+
       const userId = urlParams.get('userId');
       const email = urlParams.get('email');
       const name = urlParams.get('name');
