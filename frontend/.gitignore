@@ -42,6 +42,8 @@ pnpm-debug.log*
 .env.development.local
 .env.test.local
 .env.production.local
+.env.tunnel
+.env.render
 
 # Optional npm cache directory
 .npm
