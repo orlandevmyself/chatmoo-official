@@ -171,6 +171,7 @@ export class PaymongoService {
     userId: string,
     purpose: string,
     providerRef: string,
+    altRefs: string[] = [],
   ) {
     if (!amountMinor || !userId) {
       throw new Error('Missing required fields: amount or userId');
@@ -178,9 +179,17 @@ export class PaymongoService {
 
     try {
       const result = await (this.prisma as any).$transaction(async (t: any) => {
-        // Idempotency guard: never double-credit the same payment
+        // Idempotency guard: never double-credit the same payment.
+        // The same purchase surfaces as multiple webhook events (checkout session,
+        // payment, payment intent) with different reference ids, so dedupe across
+        // the whole payment family.
+        const refs = [...new Set([providerRef, ...altRefs].filter(Boolean))];
         const existing = await t.walletTransaction.findFirst({
-          where: { providerRef, type: 'deposit', provider: 'paymongo' },
+          where: {
+            type: 'deposit',
+            provider: 'paymongo',
+            providerRef: { in: refs },
+          },
         });
         if (existing) {
           console.log('[PaymongoService] Duplicate webhook, skipping:', providerRef);
@@ -253,6 +262,7 @@ export class PaymongoService {
     const amount = event?.attributes?.amount;
     const metadata = event?.attributes?.metadata || {};
     let userId = metadata.userId;
+    const altRefs = [event?.attributes?.payment_intent_id];
 
     if (!paymentId || !amount) {
       console.warn('[PaymongoService] Skipping payment', paymentId, '- unresolvable: missing id or amount');
@@ -278,7 +288,7 @@ export class PaymongoService {
     }
 
     const purpose = metadata.purpose || 'wallet';
-    return this.creditWallet(amount, userId, purpose, paymentId);
+    return this.creditWallet(amount, userId, purpose, paymentId, altRefs);
   }
 
   async handleCheckoutSessionPaid(event: any) {
@@ -287,6 +297,10 @@ export class PaymongoService {
     const metadata = attributes.metadata || {};
     const userId = metadata.userId;
     const payments = attributes.payments || [];
+    const altRefs = [
+      ...payments.map((p: any) => p?.id),
+      event?.attributes?.payment_intent?.attributes?.id,
+    ];
     const amount =
       payments.reduce((sum: number, p: any) => sum + (p?.attributes?.amount || 0), 0) ||
       attributes.payment_intent?.attributes?.amount ||
@@ -303,6 +317,6 @@ export class PaymongoService {
     }
 
     const purpose = metadata.purpose || 'wallet';
-    return this.creditWallet(amount, userId, purpose, sessionId);
+    return this.creditWallet(amount, userId, purpose, sessionId, altRefs);
   }
 }
