@@ -93,6 +93,8 @@ export class PaymongoService {
     currency: string;
     description: string;
     metadata: Record<string, any>;
+    successUrl?: string;
+    cancelUrl?: string;
   }) {
     return this.makeRequest('POST', '/checkout_sessions', {
       data: {
@@ -109,6 +111,8 @@ export class PaymongoService {
           description: data.description,
           statement_descriptor: 'ChatMoo',
           metadata: data.metadata,
+          success_url: data.successUrl,
+          cancel_url: data.cancelUrl,
         },
       },
     });

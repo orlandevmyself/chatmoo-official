@@ -2,7 +2,7 @@ const API_BASE = process.env.REACT_APP_API_URL || 'https://chatmoo-official.onre
 
 export const paymongoApi = {
   // Create a hosted checkout session (carries userId metadata for wallet crediting)
-  createCheckoutSession: async (amount, currency, description, metadata) => {
+  createCheckoutSession: async (amount, currency, description, metadata, successUrl, cancelUrl) => {
     try {
       const response = await fetch(`${API_BASE}/paymongo/checkout-session`, {
         method: 'POST',
@@ -14,6 +14,8 @@ export const paymongoApi = {
           currency,
           description,
           metadata,
+          successUrl,
+          cancelUrl,
         }),
         credentials: 'include',
       });

@@ -100,6 +100,8 @@ export class PaymongoController {
       currency: string;
       description: string;
       metadata: Record<string, any>;
+      successUrl?: string;
+      cancelUrl?: string;
     }
   ) {
     try {

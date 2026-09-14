@@ -50,6 +50,8 @@ function PaymentModal({ isOpen, onClose, purpose = 'wallet', onSuccess, userId, 
 
       // Create a hosted checkout session. The webhook uses userId in metadata
       // to credit the correct wallet, so no redirect/return flow needed here.
+      const returnUrl = window.location.href;
+
       const checkout = await paymongoApi.createCheckoutSession(
         parseFloat(amount),
         'PHP',
@@ -58,7 +60,9 @@ function PaymentModal({ isOpen, onClose, purpose = 'wallet', onSuccess, userId, 
           purpose,
           email,
           userId,
-        }
+        },
+        returnUrl,
+        returnUrl
       );
 
       const checkoutUrl =
