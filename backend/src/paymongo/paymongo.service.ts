@@ -68,6 +68,7 @@ export class PaymongoService {
           description: data.description,
           metadata: data.metadata,
           statement_descriptor: 'ChatMoo',
+          payment_method_allowed: ['card', 'gcash', 'paymaya', 'grab_pay'],
         },
       },
     });
@@ -104,6 +105,7 @@ export class PaymongoService {
           currency: data.currency,
           description: data.description,
           remarks: data.remarks,
+          payment_method_allowed: ['card', 'gcash', 'paymaya', 'grab_pay'],
         },
       },
     });
