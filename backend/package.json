@@ -5,6 +5,7 @@
   "main": "index.js",
   "scripts": {
     "build": "tsc",
+    "render-build": "npm install --include=dev && npx prisma generate && npm run build",
     "start": "node dist/main.js",
     "start:dev": "tsc && node dist/main.js",
     "start:prod": "node dist/main.js",
