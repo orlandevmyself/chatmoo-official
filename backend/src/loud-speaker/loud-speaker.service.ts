@@ -224,25 +224,35 @@ export class LoudSpeakerService implements OnModuleInit {
   }
 
   async updateCampaignStatus() {
-    const now = new Date();
+    try {
+      const now = new Date();
 
-    // Mark as active if time has come
-    await (this.prisma as any).loudSpeakerCampaign.updateMany({
-      where: {
-        status: 'scheduled',
-        startAt: { lte: now },
-      },
-      data: { status: 'active' },
-    });
+      // Mark as active if time has come
+      await (this.prisma as any).loudSpeakerCampaign.updateMany({
+        where: {
+          status: 'scheduled',
+          startAt: { lte: now },
+        },
+        data: { status: 'active' },
+      });
 
-    // Mark as completed if time has passed
-    await (this.prisma as any).loudSpeakerCampaign.updateMany({
-      where: {
-        status: { in: ['scheduled', 'active'] },
-        endAt: { lte: now },
-      },
-      data: { status: 'completed' },
-    });
+      // Mark as completed if time has passed
+      await (this.prisma as any).loudSpeakerCampaign.updateMany({
+        where: {
+          status: { in: ['scheduled', 'active'] },
+          endAt: { lte: now },
+        },
+        data: { status: 'completed' },
+      });
+    } catch (error: any) {
+      // Gracefully handle database connection errors
+      if (error.code === 'P1001' || error.message?.includes('database server')) {
+        console.warn('[LoudSpeaker] Database unavailable - skipping campaign status update');
+      } else {
+        console.error('[LoudSpeaker] Error updating campaign status:', error.message);
+      }
+      // Don't rethrow - let the service continue running
+    }
   }
 
   async cancelCampaign(userId: string, campaignId: string) {

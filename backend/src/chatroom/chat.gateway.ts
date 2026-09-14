@@ -15,6 +15,7 @@ import { SaveOfferService } from '../conversations/save-offer.service';
 import { ConversationsService } from '../conversations/conversations.service';
 import { ReconnectionService } from '../conversations/reconnection.service';
 import { WalletService } from '../wallet/wallet.service';
+import { BlockReportService } from '../block-report/block-report.service';
 import { isGuestUser } from '../auth/auth.constants';
 import { computeBundlePrice } from '../wallet/gift-catalog';
 import { walletEvents, WALLET_EVENTS } from '../wallet/wallet-events';
@@ -22,7 +23,21 @@ import { randomUUID } from 'crypto';
 
 @WebSocketGateway({
   cors: {
-    origin: 'http://localhost:3001',
+    origin: (origin, callback) => {
+      const allowedOrigins = [
+        'http://localhost:3001',
+        'http://localhost:3002',
+        /https:\/\/.*\.ngrok.*\.dev$/,
+      ];
+
+      if (!origin || allowedOrigins.some(o =>
+        typeof o === 'string' ? o === origin : o.test(origin)
+      )) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
     credentials: true,
   },
 })
@@ -45,6 +60,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private conversationsService: ConversationsService,
     private reconnectionService: ReconnectionService,
     private walletService: WalletService,
+    private blockReportService: BlockReportService,
   ) {
     walletEvents.on(WALLET_EVENTS.updated, (payload: { userId: string }) => {
       this.pushWalletBalance(payload.userId);
@@ -434,6 +450,24 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     if (!client.rooms.has(roomName)) {
       console.log(`[WS] Socket not in room, forcing join to ${roomName}`);
       client.join(roomName);
+    }
+
+    // Check if users are blocked
+    const senderSessionForBlockCheck = await this.sessionService.getSession(sessionId);
+    const senderUserIdForBlockCheck = senderSessionForBlockCheck?.userId;
+    const chatroomForBlockCheck = await this.chatroomService.getChatroom(payload.chatroomId);
+
+    if (chatroomForBlockCheck && senderUserIdForBlockCheck) {
+      const partnerSessionForBlockCheck = await this.resolvePartnerSession(chatroomForBlockCheck, sessionId);
+      const partnerUserIdForBlockCheck = partnerSessionForBlockCheck?.userId;
+
+      if (partnerUserIdForBlockCheck) {
+        const isBlocked = await this.blockReportService.isMutuallyBlocked(senderUserIdForBlockCheck, partnerUserIdForBlockCheck);
+        if (isBlocked) {
+          console.log(`[WS] Message blocked - Users are blocked: ${senderUserIdForBlockCheck} <-> ${partnerUserIdForBlockCheck}`);
+          return { error: 'Cannot send message to a blocked user' };
+        }
+      }
     }
 
     console.log(`[WS] Creating message with senderId: ${sessionId}`);

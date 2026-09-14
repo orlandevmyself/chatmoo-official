@@ -36,6 +36,10 @@ model User {
   messageRequestsSent  MessageRequest[]      @relation("sender")
   messageRequestsReceived MessageRequest[]   @relation("recipient")
   premiumSubscription  PremiumSubscription?
+  blockedBy            UserBlock[]           @relation("blockedBy")
+  blocking             UserBlock[]           @relation("blocking")
+  reportedBy           UserReport[]          @relation("reportedBy")
+  reports              UserReport[]          @relation("reports")
 }
 
 model Session {
@@ -382,4 +386,35 @@ model LoudSpeakerCampaign {
   @@index([endAt])
   @@index([userId])
   @@index([scheduledShowAt])
+}
+
+model UserBlock {
+  id        String   @id @default(uuid())
+  blockerId String
+  blocker   User     @relation("blockedBy", fields: [blockerId], references: [id], onDelete: Cascade)
+  blockedId String
+  blocked   User     @relation("blocking", fields: [blockedId], references: [id], onDelete: Cascade)
+  reason    String? // Optional reason for blocking
+  createdAt DateTime @default(now())
+
+  @@unique([blockerId, blockedId])
+  @@index([blockerId])
+  @@index([blockedId])
+}
+
+model UserReport {
+  id          String   @id @default(uuid())
+  reporterId  String
+  reporter    User     @relation("reportedBy", fields: [reporterId], references: [id], onDelete: Cascade)
+  reportedId  String
+  reported    User     @relation("reports", fields: [reportedId], references: [id], onDelete: Cascade)
+  reason      String // Reason for report (required)
+  description String? // Optional detailed description
+  status      String   @default("pending") // 'pending' | 'reviewed' | 'resolved' | 'dismissed'
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([reporterId])
+  @@index([reportedId])
+  @@index([status])
 }

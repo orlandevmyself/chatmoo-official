@@ -16,6 +16,9 @@ import { AdminModule } from './admin/admin.module';
 import { LoudSpeakerModule } from './loud-speaker/loud-speaker.module';
 import { MessageRequestModule } from './message-request/message-request.module';
 import { PremiumModule } from './premium/premium.module';
+import { UtilsModule } from './utils/utils.module';
+import { BlockReportModule } from './block-report/block-report.module';
+import { PaymongoModule } from './paymongo/paymongo.module';
 
 @Module({
   imports: [
@@ -38,6 +41,9 @@ import { PremiumModule } from './premium/premium.module';
     LoudSpeakerModule,
     MessageRequestModule,
     PremiumModule,
+    UtilsModule,
+    BlockReportModule,
+    PaymongoModule,
   ],
 })
 export class AppModule {}
