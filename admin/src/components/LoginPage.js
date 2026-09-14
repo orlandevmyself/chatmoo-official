@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { AlertCircle } from 'lucide-react';
 
+const API_BASE = process.env.REACT_APP_API_URL || 'https://chatmoo-official.onrender.com';
+
 function LoginPage({ onLogin }) {
   const [email, setEmail] = useState('');
   const [error, setError] = useState('');
@@ -26,7 +28,7 @@ function LoginPage({ onLogin }) {
     setError('');
 
     try {
-      const response = await fetch(`http://localhost:3000/admin/login`, {
+      const response = await fetch(`${API_BASE}/admin/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),

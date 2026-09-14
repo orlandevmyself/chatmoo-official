@@ -2,7 +2,7 @@
 // this client only attaches the saved admin tokenchers, surfaces readable
 // errors, and retries once on transient network hiccups.
 
-const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:3000';
+const API_BASE = process.env.REACT_APP_API_URL || 'https://chatmoo-official.onrender.com';
 
 let adminToken = null;
 

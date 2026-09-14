@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { AlertCircle, CheckCircle, Zap, TrendingUp } from 'lucide-react';
 
-const API_URL = process.env.REACT_APP_ADMIN_API_URL || 'http://localhost:3000';
+const API_URL = process.env.REACT_APP_ADMIN_API_URL || 'https://chatmoo-official.onrender.com';
 
 function PremiumManagement({ adminUserId }) {
   const [tiers, setTiers] = useState([]);
