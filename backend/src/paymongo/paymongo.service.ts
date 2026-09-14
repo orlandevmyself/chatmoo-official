@@ -227,7 +227,7 @@ export class PaymongoService {
   }
 
   async handlePaymentSucceeded(event: any) {
-    const paymentIntentId = event?.attributes?.id;
+    const paymentIntentId = event?.id;
     const amount = event?.attributes?.amount;
     const metadata = event?.attributes?.metadata || {};
     const userId = metadata.userId;
@@ -241,7 +241,7 @@ export class PaymongoService {
   }
 
   async handlePaymentPaid(event: any) {
-    const paymentId = event?.attributes?.id;
+    const paymentId = event?.id;
     const amount = event?.attributes?.amount;
     const metadata = event?.attributes?.metadata || {};
     let userId = metadata.userId;
@@ -273,7 +273,7 @@ export class PaymongoService {
 
   async handleCheckoutSessionPaid(event: any) {
     const attributes = event?.attributes || {};
-    const sessionId = attributes.id;
+    const sessionId = event?.id;
     const metadata = attributes.metadata || {};
     const userId = metadata.userId;
     const payments = attributes.payments || [];
