@@ -138,21 +138,27 @@ export class PaymongoController {
 
   @Post('webhook')
   async handleWebhook(@Headers('x-paymongo-signature') signature: string, @Req() req: any) {
+    const startedAt = new Date().toISOString();
     try {
       const rawBody =
         req.rawBody && Buffer.isBuffer(req.rawBody)
           ? req.rawBody.toString('utf8')
           : JSON.stringify(req.body);
 
+      console.log(`[paymongo-webhook ${startedAt}] arrival: len=${rawBody.length} sig=${signature ? signature.slice(0, 12) + '...' : 'MISSING'} ip=${req.ip || req.socket?.remoteAddress}`);
+
       const isValid = await this.paymongoService.webhookIsValid(signature, rawBody);
 
       if (!isValid) {
+        console.warn(`[paymongo-webhook ${startedAt}] REJECTED signature. Expected HMAC(secret): ${this.paymongoService.computeSignature(rawBody).slice(0, 12)}... Got: ${signature ? signature.slice(0, 12) + '...' : 'none'}`);
+        console.warn(`[paymongo-webhook ${startedAt}] raw body: ${rawBody.slice(0, 300)}`);
         return {
           success: false,
           error: 'Invalid webhook signature',
         };
       }
 
+      console.log(`[paymongo-webhook ${startedAt}] signature OK`);
       const payload = JSON.parse(rawBody);
 
       // Normalize the two known webhook envelope shapes PayMongo sends:
@@ -168,7 +174,13 @@ export class PaymongoController {
         : top.type && top.type !== 'event' && top.data ? top.data
         : top;
 
-      console.log('PayMongo Webhook Event:', eventType, eventData?.id);
+      const envelopeMode =
+        top.type === 'event' && top?.attributes?.data ? 'classic'
+        : top.type && top.type !== 'event' && top.data ? 'send.webhook'
+        : top?.type ? 'flat'
+        : 'unknown';
+
+      console.log(`[paymongo-webhook ${startedAt}] envelope=${envelopeMode} eventType=${eventType} resource=${eventData?.type} resourceId=${eventData?.id} amount=${eventData?.attributes?.amount} metadata=${JSON.stringify(eventData?.attributes?.metadata || {}).slice(0, 200)} billingEmail=${eventData?.attributes?.billing?.email || eventData?.attributes?.customer_email || 'none'}`);
 
       // Handle different webhook event types
       switch (eventType) {
@@ -193,13 +205,14 @@ export class PaymongoController {
           console.log('Payment canceled:', eventData?.attributes?.id);
           break;
         default:
-          console.log('Unhandled event type:', eventType);
+          console.warn(`[paymongo-webhook ${startedAt}] UNHANDLED event type: ${eventType}`);
       }
 
+      console.log(`[paymongo-webhook ${startedAt}] acked, event=${eventType} resourceId=${eventData?.id}`);
       return { success: true };
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      console.error('Webhook Error:', errorMessage);
+      console.error(`[paymongo-webhook ${startedAt}] Webhook Error: ${errorMessage}`);
       throw new BadRequestException(errorMessage);
     }
   }

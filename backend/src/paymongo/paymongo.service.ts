@@ -159,6 +159,13 @@ export class PaymongoService {
     return hash === signature;
   }
 
+  computeSignature(body: string): string {
+    return crypto
+      .createHmac('sha256', this.webhookSecret)
+      .update(body)
+      .digest('base64');
+  }
+
   private async creditWallet(
     amountMinor: number,
     userId: string,
