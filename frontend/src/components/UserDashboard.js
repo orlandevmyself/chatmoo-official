@@ -278,7 +278,19 @@ function UserDashboard({ googleUser, onLogout, onStartChat, onOpenSettings, onOp
         {/* User Info + Menu */}
         <div className="p-4 border-b border-navy/10 space-y-3">
           {/* Wallet preview on top */}
-          <div className="flex items-center justify-end">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 min-w-0">
+              <img
+                src="/logo-graphic.png"
+                alt="ChatMoo logo"
+                className="w-8 h-8 md:w-9 md:h-9 object-contain drop-shadow flex-shrink-0"
+              />
+              <img
+                src="/logo-text.png"
+                alt="ChatMoo"
+                className="h-5 md:h-6 w-auto object-contain drop-shadow flex-shrink-0"
+              />
+            </div>
             <button
               onClick={() => {
                 setMenuOpen(false);
