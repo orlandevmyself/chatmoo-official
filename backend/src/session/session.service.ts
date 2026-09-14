@@ -64,6 +64,24 @@ export class SessionService {
         isPremium,
         status: 'active',
       },
+      include: {
+        user: {
+          select: {
+            id: true,
+            username: true,
+            displayName: true,
+            name: true,
+            email: true,
+            avatar: true,
+            avatarSeed: true,
+            country: true,
+            countryCode: true,
+            university: true,
+            gender: true,
+            profileComplete: true,
+          },
+        },
+      },
     });
 
     // Add to matching queue in Redis (premium users get priority)
