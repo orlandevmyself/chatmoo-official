@@ -276,7 +276,21 @@ function UserDashboard({ googleUser, onLogout, onStartChat, onOpenSettings, onOp
         selectedConversation ? "hidden" : "flex h-screen md:h-auto"
       )}>
         {/* User Info + Menu */}
-        <div className="p-4 border-b border-navy/10">
+        <div className="p-4 border-b border-navy/10 space-y-3">
+          {/* Wallet preview on top */}
+          <div className="flex items-center justify-end">
+            <button
+              onClick={() => {
+                setMenuOpen(false);
+                onOpenWallet?.();
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-400/15 border border-amber-400/40 hover:bg-amber-400/25 transition-colors"
+              title="Wallet balance"
+            >
+              <Coins className="w-4 h-4 text-amber-500" />
+              <span className="text-sm font-semibold text-navy">{walletLoading ? '…' : formatPHP(walletBalance)}</span>
+            </button>
+          </div>
           <div className="flex items-center gap-3">
             {(() => {
               const prefs = getAppSettings();
@@ -309,17 +323,6 @@ function UserDashboard({ googleUser, onLogout, onStartChat, onOpenSettings, onOp
               </div>
               <p className="text-sm text-navy/60 truncate min-w-0">@{userProfile?.username || googleUser?.email || ''}</p>
             </div>
-            <button
-              onClick={() => {
-                setMenuOpen(false);
-                onOpenWallet?.();
-              }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-400/15 border border-amber-400/40 hover:bg-amber-400/25 transition-colors flex-shrink-0 whitespace-nowrap"
-              title="Wallet balance"
-            >
-              <Coins className="w-4 h-4 text-amber-500" />
-              <span className="text-sm font-semibold text-navy">{walletLoading ? '…' : formatPHP(walletBalance)}</span>
-            </button>
             <div className="relative flex-shrink-0" ref={menuRef}>
               <button
                 onClick={() => setMenuOpen((open) => !open)}
