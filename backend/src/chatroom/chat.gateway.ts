@@ -24,10 +24,12 @@ import { randomUUID } from 'crypto';
 @WebSocketGateway({
   cors: {
     origin: (origin, callback) => {
+      const envOrigins = process.env.ALLOWED_ORIGINS || '';
       const allowedOrigins = [
         'http://localhost:3001',
         'http://localhost:3002',
         /https:\/\/.*\.ngrok.*\.dev$/,
+        ...envOrigins.split(',').map(o => o.trim()).filter(Boolean),
       ];
 
       if (!origin || allowedOrigins.some(o =>
