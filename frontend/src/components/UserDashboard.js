@@ -303,18 +303,18 @@ function UserDashboard({ googleUser, onLogout, onStartChat, onOpenSettings, onOp
               );
             })()}
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <p className="font-medium text-navy truncate">{userProfile?.displayName || userProfile?.username || googleUser?.name || 'User'}</p>
-                <PremiumBadge isPremium={isPremium} daysRemaining={premiumStatus?.daysRemaining} size="xs" />
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0 overflow-hidden">
+                <p className="font-medium text-navy truncate min-w-0">{userProfile?.displayName || userProfile?.username || googleUser?.name || 'User'}</p>
+                <PremiumBadge isPremium={isPremium} daysRemaining={premiumStatus?.daysRemaining} size="xs" className="flex-shrink-0 whitespace-nowrap" />
               </div>
-              <p className="text-sm text-navy/60 truncate">@{userProfile?.username || googleUser?.email || ''}</p>
+              <p className="text-sm text-navy/60 truncate min-w-0">@{userProfile?.username || googleUser?.email || ''}</p>
             </div>
             <button
               onClick={() => {
                 setMenuOpen(false);
                 onOpenWallet?.();
               }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-400/15 border border-amber-400/40 hover:bg-amber-400/25 transition-colors flex-shrink-0"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-400/15 border border-amber-400/40 hover:bg-amber-400/25 transition-colors flex-shrink-0 whitespace-nowrap"
               title="Wallet balance"
             >
               <Coins className="w-4 h-4 text-amber-500" />
