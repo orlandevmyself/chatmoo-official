@@ -114,3 +114,25 @@ async function makeRequest(path, opts) {
   }
   return data;
 }
+
+// Block/Report API
+export const blockReportApi = {
+  getReports: (adminUserId, status, page, limit) =>
+    adminApi('/block-report/admin/reports', {
+      method: 'GET',
+      query: { userId: adminUserId, status, page, limit },
+    }),
+
+  getReportsAboutUser: (adminUserId, reportedId) =>
+    adminApi(`/block-report/admin/reports/${reportedId}`, {
+      method: 'GET',
+      query: { userId: adminUserId },
+    }),
+
+  updateReportStatus: (adminUserId, reportId, status) =>
+    adminApi(`/block-report/admin/reports/${reportId}`, {
+      method: 'PATCH',
+      query: { userId: adminUserId },
+      body: { status },
+    }),
+};

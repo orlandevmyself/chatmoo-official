@@ -145,56 +145,76 @@ function LoudSpeakerPage({ userId, onBack, walletBalance }) {
               <p className="text-sm">Create your first Loud Speaker above!</p>
             </div>
           ) : (
-            <div className="space-y-3">
-              {campaigns.map((campaign) => (
-                <div
-                  key={campaign.id}
-                  className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition"
-                >
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className={`px-2 py-1 rounded-full text-xs font-semibold ${getStatusColor(campaign.status)}`}>
-                          {getStatusLabel(campaign.status)}
-                        </span>
-                        <span className="text-xs text-navy/60">
-                          {campaign.scope === 'sitewide' ? '🌐 Entire Site' : `📍 ${campaign.scope}`}
-                        </span>
-                      </div>
-                      <p className="text-navy font-medium mb-3">{campaign.message}</p>
-                      <div className="grid grid-cols-3 gap-4 text-sm text-navy/60">
-                        <div>
-                          <span className="font-semibold text-navy">Price:</span> {campaign.price}
-                        </div>
-                        <div>
-                          <span className="font-semibold text-navy">Impressions:</span> {campaign.impressions || 0}
-                        </div>
-                        <div>
-                          <span className="font-semibold text-navy">Clicks:</span> {campaign.clicks || 0}
-                        </div>
-                      </div>
-                      <div className="mt-3 text-xs text-navy/50 space-y-1">
-                        <div>
-                          Starts: {new Date(campaign.startAt).toLocaleString()}
-                        </div>
-                        <div>
-                          Ends: {new Date(campaign.endAt).toLocaleString()}
-                        </div>
-                      </div>
-                    </div>
+            <div className="grid grid-cols-1 gap-4">
+              {campaigns.map((campaign) => {
+                const stripHtml = (html) => {
+                  const tmp = document.createElement('DIV');
+                  tmp.innerHTML = html;
+                  return tmp.textContent || tmp.innerText || '';
+                };
+                const messageText = stripHtml(campaign.message || '').substring(0, 120);
+                const statusBgColors = {
+                  active: 'bg-green-50 border-green-200',
+                  scheduled: 'bg-blue-50 border-blue-200',
+                  completed: 'bg-gray-50 border-gray-200',
+                  cancelled: 'bg-red-50 border-red-200',
+                };
 
-                    {campaign.status === 'scheduled' && (
-                      <button
-                        onClick={() => setDeleteConfirm(campaign.id)}
-                        className="flex items-center gap-1 px-3 py-2 text-red-600 hover:bg-red-50 rounded transition text-sm font-medium"
-                      >
-                        <Trash2 size={16} />
-                        Cancel
-                      </button>
-                    )}
+                return (
+                  <div
+                    key={campaign.id}
+                    className={`border-l-4 rounded-lg p-5 hover:shadow-md transition ${statusBgColors[campaign.status] || statusBgColors.scheduled}`}
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-3 mb-3">
+                          <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getStatusColor(campaign.status)}`}>
+                            {getStatusLabel(campaign.status)}
+                          </span>
+                          <span className="text-xs text-navy/60 flex items-center gap-1">
+                            {campaign.scope === 'sitewide' ? '🌐 Entire Site' : `📍 ${campaign.scope}`}
+                          </span>
+                        </div>
+                        <p className="text-navy font-medium mb-4 line-clamp-2">{messageText}...</p>
+
+                        <div className="grid grid-cols-4 gap-3 text-sm">
+                          <div className="bg-white/60 rounded p-2 text-center">
+                            <p className="text-xs text-navy/60">Price</p>
+                            <p className="font-bold text-navy">₱{((campaign.priceMinor || 0) / 100).toFixed(2)}</p>
+                          </div>
+                          <div className="bg-white/60 rounded p-2 text-center">
+                            <p className="text-xs text-navy/60">Impressions</p>
+                            <p className="font-bold text-navy">{campaign.impressions || 0}</p>
+                          </div>
+                          <div className="bg-white/60 rounded p-2 text-center">
+                            <p className="text-xs text-navy/60">Clicks</p>
+                            <p className="font-bold text-navy">{campaign.clicks || 0}</p>
+                          </div>
+                          <div className="bg-white/60 rounded p-2 text-center">
+                            <p className="text-xs text-navy/60">CTR</p>
+                            <p className="font-bold text-navy">{campaign.ctr || 0}%</p>
+                          </div>
+                        </div>
+
+                        <div className="mt-3 pt-3 border-t border-current border-opacity-10 text-xs text-navy/60 flex justify-between">
+                          <span>📅 {new Date(campaign.startAt).toLocaleDateString()}</span>
+                          <span>⏰ {new Date(campaign.startAt).toLocaleTimeString()}</span>
+                        </div>
+                      </div>
+
+                      {campaign.status === 'scheduled' && (
+                        <button
+                          onClick={() => setDeleteConfirm(campaign.id)}
+                          className="flex items-center gap-1 px-3 py-2 text-red-600 hover:bg-red-100 rounded transition text-sm font-medium flex-shrink-0"
+                        >
+                          <Trash2 size={16} />
+                          Cancel
+                        </button>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

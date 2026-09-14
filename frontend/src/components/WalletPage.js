@@ -9,14 +9,15 @@ import {
 import { cn } from '../lib/utils';
 import { getErrorMessage } from '../utils/network';
 import { useConnection } from '../context/ConnectionContext';
+import PaymentModal from './PaymentModal';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3000';
 const PAGE_SIZE = 20;
 const METHODS = [
-  { value: 'gcash', label: 'GCash' },
-  { value: 'maya', label: 'Maya' },
-  { value: 'card', label: 'Card' },
-  { value: 'bank', label: 'Bank' },
+  { value: 'paymongo', label: 'Card (PayMongo)', type: 'external' },
+  { value: 'qrph', label: 'QRPH', type: 'demo' },
+  { value: 'gcash', label: 'GCash', type: 'demo' },
+  { value: 'maya', label: 'Maya', type: 'demo' },
 ];
 const PRESETS = [100, 200, 500, 1000];
 
@@ -53,13 +54,14 @@ function WalletPage({ googleUser, onBack }) {
   const [error, setError] = useState('');
   const [showDeposit, setShowDeposit] = useState(false);
   const [showWithdraw, setShowWithdraw] = useState(false);
+  const [showPayMongo, setShowPayMongo] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
   const [depAmount, setDepAmount] = useState('');
-  const [depMethod, setDepMethod] = useState('gcash');
+  const [depMethod, setDepMethod] = useState('qrph');
   const [depVoucherCode, setDepVoucherCode] = useState('');
   const [wdAmount, setWdAmount] = useState('');
-  const [wdMethod, setWdMethod] = useState('gcash');
+  const [wdMethod, setWdMethod] = useState('qrph');
   const [wdName, setWdName] = useState('');
   const [wdNumber, setWdNumber] = useState('');
 
@@ -131,6 +133,14 @@ function WalletPage({ googleUser, onBack }) {
       setFormError('Enter a valid amount');
       return;
     }
+
+    // If PayMongo is selected, show PayMongo modal instead
+    if (depMethod === 'paymongo') {
+      setShowDeposit(false);
+      setShowPayMongo(true);
+      return;
+    }
+
     setSubmitting(true);
     try {
       await axios.post(`${API_URL}/wallet/deposit`, {
@@ -452,20 +462,21 @@ function WalletPage({ googleUser, onBack }) {
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium text-navy">Method</label>
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-2 gap-2">
                   {METHODS.map((m) => (
                     <button
                       key={m.value}
                       type="button"
                       onClick={() => setDepMethod(m.value)}
                       className={cn(
-                        "py-2 rounded-xl border-2 text-sm font-medium transition-all",
+                        "py-3 px-2 rounded-xl border-2 text-sm font-medium transition-all",
                         depMethod === m.value
                           ? "border-coral bg-coral/10 text-navy"
                           : "border-navy/20 text-navy/60 hover:border-coral"
                       )}
                     >
                       {m.label}
+                      {m.value === 'paymongo' && <span className="text-xs block text-green-600 mt-1">Secure</span>}
                     </button>
                   ))}
                 </div>
@@ -522,8 +533,8 @@ function WalletPage({ googleUser, onBack }) {
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium text-navy">Method</label>
-                <div className="grid grid-cols-4 gap-2">
-                  {METHODS.map((m) => (
+                <div className="grid grid-cols-2 gap-2">
+                  {METHODS.filter(m => m.value !== 'paymongo').map((m) => (
                     <button
                       key={m.value}
                       type="button"
@@ -576,6 +587,22 @@ function WalletPage({ googleUser, onBack }) {
           </Card>
         </div>
       )}
+
+      {/* PayMongo Payment Modal */}
+      <PaymentModal
+        isOpen={showPayMongo}
+        onClose={() => {
+          setShowPayMongo(false);
+          setDepAmount('');
+        }}
+        purpose="wallet"
+        userId={googleUser?.id}
+        onSuccess={() => {
+          setShowPayMongo(false);
+          setDepAmount('');
+          refreshAfterSubmit();
+        }}
+      />
     </div>
   );
 }

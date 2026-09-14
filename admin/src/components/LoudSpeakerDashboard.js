@@ -217,48 +217,86 @@ function LoudSpeakerDashboard({ adminUserId }) {
 
       {/* CAMPAIGNS TAB */}
       {activeTab === 'campaigns' && (
-        <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-bold text-navy mb-4">Recent Campaigns</h3>
+        <div>
+          <h3 className="text-lg font-bold text-navy mb-6 flex items-center gap-2">
+            <Volume2 size={20} className="text-coral" />
+            Your Campaigns
+          </h3>
           {campaigns.length === 0 ? (
-            <p className="text-navy/60 text-center py-8">No campaigns yet</p>
+            <div className="bg-white rounded-lg shadow p-12 text-center">
+              <p className="text-navy/60">No campaigns yet</p>
+            </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="border-b border-gray-200">
-                  <tr className="text-left text-navy/60 font-semibold">
-                    <th className="pb-3">User</th>
-                    <th className="pb-3">Message</th>
-                    <th className="pb-3">Scope</th>
-                    <th className="pb-3">Status</th>
-                    <th className="pb-3">Impressions</th>
-                    <th className="pb-3">Clicks</th>
-                    <th className="pb-3">CTR</th>
-                    <th className="pb-3">Revenue</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200">
-                  {campaigns.slice(0, 10).map((campaign) => (
-                    <tr key={campaign.id} className="hover:bg-gray-50">
-                      <td className="py-3 text-navy font-medium">{campaign.user?.name || campaign.user?.email}</td>
-                      <td className="py-3 text-navy max-w-xs truncate">{campaign.message}</td>
-                      <td className="py-3 text-navy/70 capitalize">{campaign.scope}</td>
-                      <td className="py-3">
-                        <span className={`inline-block px-2 py-1 rounded-full text-xs font-semibold ${
-                          campaign.status === 'active' ? 'bg-green-100 text-green-700' :
-                          campaign.status === 'completed' ? 'bg-gray-100 text-gray-700' :
-                          'bg-blue-100 text-blue-700'
-                        }`}>
-                          {campaign.status}
-                        </span>
-                      </td>
-                      <td className="py-3 text-navy">{campaign.impressions}</td>
-                      <td className="py-3 text-navy">{campaign.clicks}</td>
-                      <td className="py-3 text-navy font-semibold">{campaign.ctr}%</td>
-                      <td className="py-3 text-navy font-bold">₱{campaign.price.toFixed(2)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="grid grid-cols-1 gap-4">
+              {campaigns.map((campaign) => {
+                const stripHtml = (html) => {
+                  const tmp = document.createElement('DIV');
+                  tmp.innerHTML = html;
+                  return tmp.textContent || tmp.innerText || '';
+                };
+                const messageText = stripHtml(campaign.message || '').substring(0, 100);
+                const statusColors = {
+                  active: 'border-green-200 bg-green-50',
+                  scheduled: 'border-blue-200 bg-blue-50',
+                  completed: 'border-gray-200 bg-gray-50',
+                  cancelled: 'border-red-200 bg-red-50',
+                };
+                const statusBadge = {
+                  active: 'bg-green-100 text-green-700',
+                  scheduled: 'bg-blue-100 text-blue-700',
+                  completed: 'bg-gray-100 text-gray-700',
+                  cancelled: 'bg-red-100 text-red-700',
+                };
+
+                return (
+                  <div
+                    key={campaign.id}
+                    className={`border-l-4 rounded-lg shadow-sm hover:shadow-md transition p-5 ${statusColors[campaign.status] || statusColors.scheduled}`}
+                  >
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-3 mb-2">
+                          <span className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${statusBadge[campaign.status]}`}>
+                            {campaign.status.charAt(0).toUpperCase() + campaign.status.slice(1)}
+                          </span>
+                          <span className="text-xs text-navy/60 flex items-center gap-1">
+                            📍 {campaign.scope}
+                          </span>
+                        </div>
+                        <p className="text-sm text-navy font-medium line-clamp-2">{messageText}...</p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-5 gap-3 text-sm">
+                      <div className="bg-white/60 rounded p-2 text-center">
+                        <p className="text-xs text-navy/60">Price</p>
+                        <p className="font-bold text-navy">₱{(campaign.price / 100).toFixed(2)}</p>
+                      </div>
+                      <div className="bg-white/60 rounded p-2 text-center">
+                        <p className="text-xs text-navy/60">Impressions</p>
+                        <p className="font-bold text-navy">{campaign.impressions}</p>
+                      </div>
+                      <div className="bg-white/60 rounded p-2 text-center">
+                        <p className="text-xs text-navy/60">Clicks</p>
+                        <p className="font-bold text-navy">{campaign.clicks}</p>
+                      </div>
+                      <div className="bg-white/60 rounded p-2 text-center">
+                        <p className="text-xs text-navy/60">CTR</p>
+                        <p className="font-bold text-navy">{campaign.ctr || 0}%</p>
+                      </div>
+                      <div className="bg-white/60 rounded p-2 text-center">
+                        <p className="text-xs text-navy/60">Duration</p>
+                        <p className="font-bold text-navy text-xs">{campaign.durationMinutes}min</p>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 pt-3 border-t border-current border-opacity-10 text-xs text-navy/60 flex justify-between">
+                      <span>Start: {new Date(campaign.startAt).toLocaleString()}</span>
+                      <span>End: {new Date(campaign.endAt).toLocaleString()}</span>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>

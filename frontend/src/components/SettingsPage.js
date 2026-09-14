@@ -5,8 +5,9 @@ import { Input } from './ui/input';
 import { Card } from './ui/card';
 import {
   ArrowLeft, Check, Lock, LogOut, Shuffle, ChevronDown, User, Bell,
-  MessageCircle, Palette, Activity, FileText, ShieldCheck,
+  MessageCircle, Palette, Activity, FileText, ShieldCheck, Ban,
 } from 'lucide-react';
+import BlockedUsers from './BlockedUsers';
 import { cn } from '../lib/utils';
 import { getAvatarUrl, getFlagUrl } from '../utils/conversationHelpers';
 import {
@@ -15,7 +16,7 @@ import {
 } from '../utils/appSettings';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3000';
-const UNIVERSITIES_API = 'http://universities.hipolabs.com/search';
+const UNIVERSITIES_API = `${API_URL}/utils/universities`;
 
 const COUNTRIES = [
   { name: 'Philippines', code: 'PH' },
@@ -111,9 +112,12 @@ function SettingsPage({ googleUser, onBack, onLogout }) {
         return;
       }
       try {
-        const response = await axios.get(`${UNIVERSITIES_API}?country=${form.country}`);
+        const response = await axios.get(`${UNIVERSITIES_API}?country=${form.country}`, {
+          timeout: 5000,
+        });
         setUniversities(response.data || []);
       } catch {
+        console.warn('University API unavailable, using manual input');
         setUniversities([]);
       }
     };
@@ -562,6 +566,33 @@ function SettingsPage({ googleUser, onBack, onLogout }) {
             <p className="text-xs text-navy/50">Last updated September 2026.</p>
           </div>
         </Section>
+
+        {/* Blocked Users */}
+        {openSection === 'blocked-users' ? (
+          <Card className="bg-white/95 backdrop-blur-lg border-0 shadow-xl overflow-hidden">
+            <BlockedUsers
+              userId={googleUser?.id}
+              onBack={() => setOpenSection(null)}
+            />
+          </Card>
+        ) : (
+          <Card className="bg-white/95 backdrop-blur-lg border-0 shadow-xl overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setOpenSection('blocked-users')}
+              className="w-full flex items-center gap-3 p-4 text-left"
+            >
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-coral to-softPurple flex items-center justify-center text-white flex-shrink-0">
+                <Ban className="w-5 h-5" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-navy">Blocked Users</p>
+                <p className="text-xs text-navy/60 truncate">Manage users you've blocked</p>
+              </div>
+              <ChevronDown className="w-5 h-5 text-navy/40 flex-shrink-0" />
+            </button>
+          </Card>
+        )}
 
         {/* Logout */}
         <Card className="bg-white/95 backdrop-blur-lg border-0 shadow-xl overflow-hidden">

@@ -32,18 +32,21 @@ function PremiumSetup({ userProfile, onComplete, onBack }) {
 
       try {
         setLoadingUniversities(true);
-        const response = await axios.get(`${UNIVERSITIES_API}?country=${formData.country}`);
+        const response = await axios.get(`${UNIVERSITIES_API}?country=${formData.country}`, {
+          timeout: 5000,
+        });
         const uniNames = response.data.map((uni) => uni.name).slice(0, 50);
         setUniversities(uniNames);
       } catch (err) {
-        console.error('Error fetching universities:', err);
+        console.warn('University API unavailable, using manual input');
         setUniversities([]);
       } finally {
         setLoadingUniversities(false);
       }
     };
 
-    fetchUniversities();
+    const timer = setTimeout(fetchUniversities, 300);
+    return () => clearTimeout(timer);
   }, [formData.country]);
 
   const handleChange = (field, value) => {
@@ -120,8 +123,8 @@ function PremiumSetup({ userProfile, onComplete, onBack }) {
               />
               {universities.length > 0 && (
                 <datalist id="universities-list">
-                  {universities.map((uni) => (
-                    <option key={uni} value={uni} />
+                  {universities.map((uni, idx) => (
+                    <option key={`${uni.name || uni}-${idx}`} value={uni.name || uni} />
                   ))}
                 </datalist>
               )}

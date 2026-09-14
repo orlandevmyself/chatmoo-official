@@ -7,7 +7,7 @@ import { getConversationPartner, mapSavedToChat, mergeMessagesById, computeOwnSe
 import { getAppSettings, playMessageSound, notifyNewMessage } from '../utils/appSettings';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3000';
-const SOCKET_URL = process.env.REACT_APP_SOCKET_URL || 'http://localhost:3000';
+const SOCKET_URL = process.env.REACT_APP_SOCKET_URL || API_URL;
 const JOIN_TIMEOUT_MS = 12000;
 
 // Full-featured chat for a saved (shared) conversation, used inside the

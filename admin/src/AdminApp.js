@@ -11,6 +11,7 @@ import WalletDashboard from './components/WalletDashboard';
 import LoudSpeakerDashboard from './components/LoudSpeakerDashboard';
 import VoucherManagement from './components/VoucherManagement';
 import PremiumManagement from './components/PremiumManagement';
+import ReportsManagement from './components/ReportsManagement';
 import LoginPage from './components/LoginPage';
 import { AdminAuthContext } from './context/AdminAuthContext';
 import './AdminApp.css';
@@ -76,6 +77,7 @@ function AdminApp() {
             <Routes>
               <Route path="/" element={<OverviewDashboard adminUserId={adminUser.id} />} />
               <Route path="/users" element={<UsersManagement adminUserId={adminUser.id} />} />
+              <Route path="/reports" element={<ReportsManagement adminUserId={adminUser.id} />} />
               <Route path="/transactions" element={<TransactionsReport adminUserId={adminUser.id} />} />
               <Route path="/config" element={<ConfigManagement adminUserId={adminUser.id} />} />
               <Route path="/gifts" element={<GiftCatalog adminUserId={adminUser.id} />} />

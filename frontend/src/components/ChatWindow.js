@@ -4,14 +4,16 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
-import { Send, X, User, GraduationCap, Venus, Mars, Transgender, MoreVertical, Forward, Image as ImageIcon, Heart, MessageCircle, Bookmark, Clock, Check, ArrowLeft, Gift, Video, Lock, LockOpen, Coins } from 'lucide-react';
+import { Send, X, User, GraduationCap, Venus, Mars, Transgender, MoreVertical, Forward, Image as ImageIcon, Heart, MessageCircle, Bookmark, Clock, Check, ArrowLeft, Gift, Video, Lock, LockOpen, Coins, Ban, AlertTriangle } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { getAvatarUrl, getDisplayName, getFlagUrl } from '../utils/conversationHelpers';
 import { getAppSettings, CHAT_THEMES, FONT_SIZE_CLASSES } from '../utils/appSettings';
 import GiftPicker from './GiftPicker';
 import MediaLockDialog from './MediaLockDialog';
 import LoudSpeaker from './LoudSpeaker';
+import ReportUserDialog from './ReportUserDialog';
 import { getGift } from '../utils/giftCatalog';
+import { blockReportApi } from '../utils/blockReportApi';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3000';
 
@@ -76,6 +78,9 @@ function ChatWindow({
   const [unlockingKey, setUnlockingKey] = useState(null);
   const [unlockError, setUnlockError] = useState(null);
   const [pendingUnlock, setPendingUnlock] = useState(null);
+  const [showReportDialog, setShowReportDialog] = useState(false);
+  const [blockError, setBlockError] = useState('');
+  const [blockSuccess, setBlockSuccess] = useState('');
   const messagesEndRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -426,6 +431,22 @@ function ChatWindow({
 
   const composerDisabled = uploadingImage || inputDisabled || partnerLeft || !chatroomId;
   const showPartnerBanner = partnerLeft || partnerOnline === false;
+
+  const handleBlockUser = async () => {
+    if (!session?.userId || !partner?.id) return;
+    try {
+      setBlockError('');
+      await blockReportApi.blockUser(session.userId, partner.id);
+      setBlockSuccess('User blocked successfully');
+      setTimeout(() => setBlockSuccess(''), 3000);
+    } catch (err) {
+      setBlockError(err.response?.data?.message || 'Failed to block user');
+    }
+  };
+
+  const handleReportUser = () => {
+    setShowReportDialog(true);
+  };
   const prefs = getAppSettings();
   const theme = CHAT_THEMES[prefs.chatTheme] || CHAT_THEMES.default;
 
@@ -571,6 +592,24 @@ function ChatWindow({
                     <X className="w-5 h-5" />
                   </Button>
                 )}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleBlockUser}
+                  className="bg-white/20 text-white hover:bg-white/30"
+                  title="Block user"
+                >
+                  <Ban className="w-5 h-5" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleReportUser}
+                  className="bg-white/20 text-white hover:bg-white/30"
+                  title="Report user"
+                >
+                  <AlertTriangle className="w-5 h-5" />
+                </Button>
               </>
             )}
           </div>
@@ -1180,6 +1219,30 @@ function ChatWindow({
             </CardContent>
           </Card>
         </div>
+      )}
+
+      {/* Block/Report Status Messages */}
+      {blockError && (
+        <div className="fixed bottom-4 left-4 right-4 p-4 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 shadow-lg">
+          {blockError}
+        </div>
+      )}
+      {blockSuccess && (
+        <div className="fixed bottom-4 left-4 right-4 p-4 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700 shadow-lg">
+          {blockSuccess}
+        </div>
+      )}
+
+      {/* Report User Dialog */}
+      {showReportDialog && partner && (
+        <ReportUserDialog
+          userId={session?.userId}
+          reportedUser={partner}
+          onClose={() => setShowReportDialog(false)}
+          onReportSuccess={() => {
+            setShowReportDialog(false);
+          }}
+        />
       )}
     </div>
   );

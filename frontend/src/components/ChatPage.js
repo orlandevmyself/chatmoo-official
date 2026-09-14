@@ -14,7 +14,7 @@ import { getAppSettings, playMessageSound, notifyNewMessage } from '../utils/app
 import { getErrorMessage, isNetworkError } from '../utils/network';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3000';
-const SOCKET_URL = process.env.REACT_APP_SOCKET_URL || 'http://localhost:3000';
+const SOCKET_URL = process.env.REACT_APP_SOCKET_URL || API_URL;
 
 function ChatPage({ session, onBackToLanding }) {
   const [status, setStatus] = useState('searching');

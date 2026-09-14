@@ -23,7 +23,8 @@ export const COUNTRIES = [
   { name: 'Other', code: 'OTHER' },
 ];
 
-export const UNIVERSITIES_API = 'http://universities.hipolabs.com/search';
+const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:3000';
+export const UNIVERSITIES_API = `${API_BASE}/utils/universities`;
 
 export const getFlagUrl = (countryCode) => {
   if (!countryCode || countryCode === 'OTHER') return null;

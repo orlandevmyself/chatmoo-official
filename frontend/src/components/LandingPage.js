@@ -13,7 +13,7 @@ import LoudSpeaker from './LoudSpeaker';
 
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3000';
-const UNIVERSITIES_API = 'http://universities.hipolabs.com/search';
+const UNIVERSITIES_API = `${API_URL}/utils/universities`;
 
 const COUNTRIES = [
   { name: 'Philippines', code: 'PH' },
@@ -88,17 +88,20 @@ function LandingPage({ onStartChat, googleUser, guestSession, onLogout }) {
 
       setLoadingUniversities(true);
       try {
-        const response = await axios.get(`${UNIVERSITIES_API}?country=${formData.country}`);
+        const response = await axios.get(`${UNIVERSITIES_API}?country=${formData.country}`, {
+          timeout: 5000,
+        });
         setUniversities(response.data || []);
       } catch (error) {
-        console.error('Error fetching universities:', error);
+        console.warn('University API unavailable, using manual input');
         setUniversities([]);
       } finally {
         setLoadingUniversities(false);
       }
     };
 
-    fetchUniversities();
+    const timer = setTimeout(fetchUniversities, 300);
+    return () => clearTimeout(timer);
   }, [formData.country, reconnectTick]);
 
   // Close dropdowns when clicking outside

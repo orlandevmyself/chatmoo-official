@@ -12,6 +12,7 @@ import {
   Volume2,
   Ticket,
   Zap,
+  AlertTriangle,
 } from 'lucide-react';
 
 function AdminNav({ adminUser, onLogout }) {
@@ -27,6 +28,7 @@ function AdminNav({ adminUser, onLogout }) {
     { path: '/vouchers', label: 'Vouchers', icon: Ticket },
     { path: '/premium', label: 'Premium', icon: Zap },
     { path: '/users', label: 'Users', icon: Users },
+    { path: '/reports', label: 'Reports', icon: AlertTriangle },
     { path: '/transactions', label: 'Transactions', icon: CreditCard },
     { path: '/gifts', label: 'Gifts', icon: Gift },
     { path: '/config', label: 'Config', icon: Settings },
